@@ -165,3 +165,17 @@
 .slim-scrollbar::-webkit-scrollbar-thumb:hover {
   background: oklch(0.78 0 0);
 }
+.dark .slim-scrollbar {
+  scrollbar-color: oklch(0.45 0 0) transparent;
+}
+.dark .slim-scrollbar::-webkit-scrollbar-thumb {
+  background: oklch(0.45 0 0);
+}
+.dark .slim-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.55 0 0);
+}
+
+/* native controls (select popups, scrollbars, inputs) follow the theme */
+html.dark {
+  color-scheme: dark;
+}

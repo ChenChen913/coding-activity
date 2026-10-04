@@ -47,6 +47,7 @@ import { ContributorCard } from '@/components/dashboard/contributor-card'
 import { RhythmCard } from '@/components/dashboard/rhythm-card'
 import { ConventionsCard } from '@/components/dashboard/conventions-card'
 import { IntegrityCard } from '@/components/integrity/integrity-card'
+import { ThemeToggle } from '@/components/theme-toggle'
 import { useClock } from '@/hooks/use-clock'
 import type {
   CommitsResponse,
@@ -191,6 +192,7 @@ export default function Home() {
             <span className="font-medium">
               {now ? format(now, 'HH:mm:ss') : '··:··:··'}
             </span>
+            <ThemeToggle />
           </div>
         </div>
       </header>
@@ -229,7 +231,7 @@ export default function Home() {
                   {overview.repo.contributorCount.toLocaleString()} contributors
                 </span>
                 {overview.repo.aiCommitCount > 0 && (
-                  <span className="inline-flex items-center gap-1 text-amber-600">
+                  <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
                     <Sparkles className="h-3 w-3" />
                     {overview.repo.aiCommitCount} AI commits
                   </span>
@@ -283,9 +285,9 @@ export default function Home() {
 
         {/* error */}
         {loadError && !overviewQuery.isFetching && (
-          <Card className="border-red-200">
+          <Card className="border-red-200 dark:border-red-500/40">
             <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
-              <div className="flex items-center gap-2 text-sm font-medium text-red-600">
+              <div className="flex items-center gap-2 text-sm font-medium text-red-600 dark:text-red-400">
                 <AlertTriangle className="h-4 w-4" />
                 Unable to read Git history.
                 <span className="font-mono text-xs font-normal text-muted-foreground">
@@ -369,7 +371,7 @@ export default function Home() {
                       {authorFilter && (
                         <span
                           role="status"
-                          className="inline-flex h-8 max-w-[180px] shrink-0 items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 text-[12px] font-medium text-emerald-800"
+                          className="inline-flex h-8 max-w-[180px] shrink-0 items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 text-[12px] font-medium text-emerald-800 dark:border-emerald-400/40 dark:bg-emerald-400/15 dark:text-emerald-300"
                         >
                           <UserRound className="h-3.5 w-3.5 shrink-0" />
                           <span className="truncate">{authorFilter.name}</span>
@@ -377,7 +379,7 @@ export default function Home() {
                             type="button"
                             aria-label={`Clear author filter: ${authorFilter.name}`}
                             onClick={() => setAuthorFilter(null)}
-                            className="ml-0.5 shrink-0 rounded-full p-0.5 transition-colors hover:bg-emerald-100"
+                            className="ml-0.5 shrink-0 rounded-full p-0.5 transition-colors hover:bg-emerald-100 dark:hover:bg-emerald-400/25"
                           >
                             <X className="h-3 w-3" />
                           </button>

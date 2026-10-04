@@ -786,13 +786,13 @@ export function CommitGraph({
                       <circle
                         r={r}
                         fill={color}
-                        stroke="white"
+                        stroke="var(--background)"
                         strokeWidth={nd.commit.isMerge ? 2.2 : 1.4}
                       />
                       {nd.commit.isMerge && (
                         <circle
                           r={Math.max(r * 0.38, 1.1)}
-                          fill="white"
+                          fill="var(--background)"
                           fillOpacity={0.9}
                         />
                       )}
@@ -802,7 +802,7 @@ export function CommitGraph({
                           cy={-r * 0.92}
                           r={Math.max(2.1, r * 0.4)}
                           fill="#f59e0b"
-                          stroke="white"
+                          stroke="var(--background)"
                           strokeWidth={1}
                         />
                       )}
@@ -959,7 +959,7 @@ export function CommitGraph({
                       </span>
                     )}
                     {hoveredCommit.aiAgent && (
-                      <span className="rounded-full border border-amber-200 bg-amber-50 px-1 py-px text-[9px] font-medium text-amber-700">
+                      <span className="rounded-full border border-amber-200 bg-amber-50 px-1 py-px text-[9px] font-medium text-amber-700 dark:border-amber-400/40 dark:bg-amber-400/15 dark:text-amber-300">
                         ✦ {hoveredCommit.aiAgent}
                       </span>
                     )}

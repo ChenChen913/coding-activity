@@ -263,7 +263,7 @@ export function ActivityTimeline({
                       always anchored to the bar top, whatever its height */}
                   {b.ai > 0 && (
                     <span
-                      className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500 ring-2 ring-amber-200"
+                      className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500 ring-2 ring-amber-200 dark:ring-amber-400/40"
                       aria-hidden
                     />
                   )}
@@ -406,18 +406,18 @@ export function ActivityTimeline({
                               initial={{ scale: 0, opacity: 0 }}
                               animate={{ scale: 1, opacity: 1 }}
                               transition={{ duration: 0.25, ease: 'easeOut' }}
-                              className="flex h-[22px] w-[22px] items-center justify-center rounded-full border border-amber-300 bg-amber-100 shadow-sm"
+                              className="flex h-[22px] w-[22px] items-center justify-center rounded-full border border-amber-300 bg-amber-100 shadow-sm dark:border-amber-400/40 dark:bg-amber-400/15"
                             >
-                              <Sparkles className="h-3 w-3 text-amber-600" />
+                              <Sparkles className="h-3 w-3 text-amber-600 dark:text-amber-400" />
                             </motion.span>
                           ) : a.isMerge ? (
                             <motion.span
                               initial={{ scale: 0, opacity: 0 }}
                               animate={{ scale: 1, opacity: 1 }}
                               transition={{ duration: 0.25, ease: 'easeOut' }}
-                              className="flex h-[22px] w-[22px] items-center justify-center rounded-full border border-teal-300 bg-teal-50 shadow-sm"
+                              className="flex h-[22px] w-[22px] items-center justify-center rounded-full border border-teal-300 bg-teal-50 shadow-sm dark:border-teal-400/40 dark:bg-teal-400/15"
                             >
-                              <GitMerge className="h-3 w-3 text-teal-600" />
+                              <GitMerge className="h-3 w-3 text-teal-600 dark:text-teal-300" />
                             </motion.span>
                           ) : (
                             <motion.span
@@ -450,7 +450,7 @@ export function ActivityTimeline({
                                 {a.title}
                               </span>
                               {isAi && (
-                                <span className="inline-flex shrink-0 items-center rounded-full border border-amber-200 bg-amber-50 px-1.5 py-px text-[10px] font-medium text-amber-700">
+                                <span className="inline-flex shrink-0 items-center rounded-full border border-amber-200 bg-amber-50 px-1.5 py-px text-[10px] font-medium text-amber-700 dark:border-amber-400/40 dark:bg-amber-400/15 dark:text-amber-300">
                                   ✦ {a.aiAgent}
                                 </span>
                               )}

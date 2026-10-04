@@ -11,8 +11,8 @@ import { baseName, dirName } from './diff-parser'
 /* ------------------------------------------------------------------ */
 
 const LINE_STYLES: Record<DiffLine['type'], string> = {
-  add: 'bg-emerald-500/[0.09] text-emerald-900',
-  remove: 'bg-red-500/[0.09] text-red-900',
+  add: 'bg-emerald-500/[0.09] text-emerald-900 dark:bg-emerald-400/[0.13] dark:text-emerald-100',
+  remove: 'bg-red-500/[0.09] text-red-900 dark:bg-red-400/[0.13] dark:text-red-100',
   context: '',
   hunk: 'bg-muted/70 text-muted-foreground',
 }
@@ -46,9 +46,9 @@ const DiffRow = memo(function DiffRow({ line }: { line: DiffLine }) {
       <span
         className={`w-3 shrink-0 text-center select-none ${
           line.type === 'add'
-            ? 'text-emerald-600'
+            ? 'text-emerald-600 dark:text-emerald-400'
             : line.type === 'remove'
-              ? 'text-red-600'
+              ? 'text-red-600 dark:text-red-400'
               : 'text-transparent'
         }`}
       >
@@ -67,11 +67,11 @@ function StatusLetter({ f }: { f: DiffFile }) {
   const letter = f.isNew ? 'A' : f.isDeleted ? 'D' : f.oldPath && f.oldPath !== f.path ? 'R' : 'M'
   const cls =
     letter === 'A'
-      ? 'bg-emerald-500/15 text-emerald-700'
+      ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
       : letter === 'D'
-        ? 'bg-red-500/15 text-red-700'
+        ? 'bg-red-500/15 text-red-700 dark:text-red-300'
         : letter === 'R'
-          ? 'bg-amber-500/15 text-amber-700'
+          ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
           : 'bg-muted text-muted-foreground'
   return (
     <span

@@ -77,9 +77,9 @@ function Row({
           {detail}
         </span>
         {pass ? (
-          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
         ) : (
-          <XCircle className="h-3.5 w-3.5 text-red-600" />
+          <XCircle className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
         )}
       </span>
     </div>
@@ -121,9 +121,9 @@ export function IntegrityCard({
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
           <span className="flex items-center gap-2 text-sm font-semibold">
             {allPass ? (
-              <ShieldCheck className="h-4 w-4 text-emerald-600" />
+              <ShieldCheck className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
             ) : (
-              <ShieldCheck className="h-4 w-4 text-amber-600" />
+              <ShieldCheck className="h-4 w-4 text-amber-600 dark:text-amber-400" />
             )}
             Data Integrity
           </span>

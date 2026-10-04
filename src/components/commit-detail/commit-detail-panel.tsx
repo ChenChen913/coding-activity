@@ -110,7 +110,7 @@ export function CommitDetailPanel({
             {c?.isMerge ? 'Merge Commit' : 'Commit'}
           </span>
           {c?.aiAgent && (
-            <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-1.5 py-px text-[10px] font-medium text-amber-700">
+            <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-1.5 py-px text-[10px] font-medium text-amber-700 dark:border-amber-400/40 dark:bg-amber-400/15 dark:text-amber-300">
               <Sparkles className="h-2.5 w-2.5" />
               {c.aiAgent}
             </span>
@@ -140,7 +140,7 @@ export function CommitDetailPanel({
 
         {detailQ.error && (
           <div className="py-8 text-center text-xs text-muted-foreground">
-            <p className="font-medium text-red-600">Failed to load commit.</p>
+            <p className="font-medium text-red-600 dark:text-red-400">Failed to load commit.</p>
             <p className="mt-1">{(detailQ.error as Error).message}</p>
             <Button
               size="sm"
@@ -173,10 +173,10 @@ export function CommitDetailPanel({
                 <FileDiff className="h-3.5 w-3.5" />
                 {d.stats.filesChanged} files
               </span>
-              <span className="font-medium text-emerald-600">
+              <span className="font-medium text-emerald-600 dark:text-emerald-400">
                 +{d.stats.additions.toLocaleString()}
               </span>
-              <span className="font-medium text-red-600">
+              <span className="font-medium text-red-600 dark:text-red-400">
                 −{d.stats.deletions.toLocaleString()}
               </span>
             </div>
@@ -197,7 +197,7 @@ export function CommitDetailPanel({
                     onClick={copyHash}
                   >
                     {copied ? (
-                      <Check className="h-3 w-3 text-emerald-600" />
+                      <Check className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
                     ) : (
                       <Copy className="h-3 w-3" />
                     )}
@@ -270,7 +270,7 @@ export function CommitDetailPanel({
                         className={`rounded-full border px-1.5 py-px text-[10px] ${
                           b.includes('/')
                             ? 'border-border text-muted-foreground'
-                            : 'border-teal-600/30 bg-teal-600/10 font-medium text-teal-700'
+                            : 'border-teal-600/30 bg-teal-600/10 font-medium text-teal-700 dark:border-teal-400/40 dark:bg-teal-400/15 dark:text-teal-300'
                         }`}
                       >
                         {b}
@@ -287,7 +287,7 @@ export function CommitDetailPanel({
 
               {c.aiAgent && (
                 <MetaRow label="AI Trace">
-                  <p className="text-xs leading-relaxed text-amber-700">
+                  <p className="text-xs leading-relaxed text-amber-700 dark:text-amber-400/90">
                     Detected from real commit trailers (Co-Authored-By /
                     Generated-with). {c.aiAgent} participated in this change.
                   </p>

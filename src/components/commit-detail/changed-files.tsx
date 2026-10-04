@@ -108,7 +108,7 @@ function ChangedFilesInner({ repoId, hash }: ChangedFilesProps) {
   if (diffQ.error) {
     return (
       <div className="py-4 text-center text-xs text-muted-foreground">
-        <p className="font-medium text-red-600">Failed to load diff.</p>
+        <p className="font-medium text-red-600 dark:text-red-400">Failed to load diff.</p>
         <p className="mt-1">{(diffQ.error as Error).message}</p>
         <Button
           size="sm"
@@ -137,10 +137,10 @@ function ChangedFilesInner({ repoId, hash }: ChangedFilesProps) {
       <div className="flex items-center justify-between">
         <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
           {files.some((f) => f.status === 'added') && (
-            <FilePlus className="h-3 w-3 text-emerald-600" />
+            <FilePlus className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
           )}
           {files.some((f) => f.status === 'deleted') && (
-            <FileX className="h-3 w-3 text-red-600" />
+            <FileX className="h-3 w-3 text-red-600 dark:text-red-400" />
           )}
           <FileDiff className="h-3 w-3" />
           {files.length} changed {files.length === 1 ? 'file' : 'files'}
@@ -204,8 +204,8 @@ function ChangedFilesInner({ repoId, hash }: ChangedFilesProps) {
                 <span className="text-muted-foreground">binary</span>
               ) : (
                 <>
-                  <span className="text-emerald-600">+{f.additions}</span>{' '}
-                  <span className="text-red-600">−{f.deletions}</span>
+                  <span className="text-emerald-600 dark:text-emerald-400">+{f.additions}</span>{' '}
+                  <span className="text-red-600 dark:text-red-400">−{f.deletions}</span>
                 </>
               )}
             </span>
@@ -213,7 +213,7 @@ function ChangedFilesInner({ repoId, hash }: ChangedFilesProps) {
         ))}
 
       {parsed?.truncated && (
-        <p className="flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] text-amber-700">
+        <p className="flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] text-amber-700 dark:border-amber-400/40 dark:bg-amber-400/15 dark:text-amber-300">
           <ChevronDown className="h-3 w-3" />
           Diff truncated at 256 KB — showing the first files only.
         </p>
