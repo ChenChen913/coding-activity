@@ -1,0 +1,179 @@
+'use client'
+
+/**
+ * AI Coding Activity — Phase 5 · Message conventions insight
+ *
+ * Conventional-commit type distribution, parsed from the real subject
+ * lines (feat: / fix(scope): / revert: …). Non-conforming subjects land
+ * in "other" — visible, never hidden. The bottom strip shows the real
+ * AI-assisted share of the currently visible history.
+ */
+
+import { useMemo } from 'react'
+import { motion } from 'framer-motion'
+import { Sparkles, Tag } from 'lucide-react'
+
+import { Card } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
+import type { GraphCommit } from '@/lib/git/types'
+
+const MAX_ROWS = 8
+
+/** type → color (warm/green palette, no blues) */
+const TYPE_COLORS: Record<string, string> = {
+  feat: '#059669',
+  fix: '#be123c',
+  docs: '#ca8a04',
+  build: '#7c2d12',
+  chore: '#78716c',
+  ci: '#a21caf',
+  refactor: '#0d9488',
+  test: '#4d7c0f',
+  perf: '#b45309',
+  style: '#d4a373',
+  revert: '#57534e',
+  deps: '#9a3412',
+  other: '#a8a29e',
+}
+
+/** parse "fix(scope)!: subject" → "fix"; "Revert \"x\"" → "revert"; else null */
+function parseType(message: string): string {
+  const m = /^(?:revert:\s|revert\s|(\w+)(?:\([\w./-]+\))?(!)?:\s)/i.exec(message)
+  if (!m) return 'other'
+  if (/^revert/i.test(message)) return 'revert'
+  const t = (m[1] ?? '').toLowerCase()
+  return t || 'other'
+}
+
+export interface ConventionsCardProps {
+  commits: GraphCommit[]
+  loading: boolean
+}
+
+export function ConventionsCard({ commits, loading }: ConventionsCardProps) {
+  const analysis = useMemo(() => {
+    const counts = new Map<string, number>()
+    let conventional = 0
+    let ai = 0
+    for (const c of commits) {
+      const t = parseType(c.message)
+      counts.set(t, (counts.get(t) ?? 0) + 1)
+      if (t !== 'other') conventional += 1
+      if (c.aiAgent) ai += 1
+    }
+    const total = commits.length || 1
+    // named types sorted by frequency; "other" always sinks to the last
+    // row (merged with any tail types beyond MAX_ROWS) — the catch-all
+    // should never visually dominate the real conventions.
+    const otherCount = counts.get('other') ?? 0
+    const named = [...counts.entries()]
+      .filter(([t]) => t !== 'other')
+      .sort((a, b) => b[1] - a[1])
+    const head = named.slice(0, MAX_ROWS - 1)
+    const tail = named.slice(MAX_ROWS - 1).reduce((s, [, n]) => s + n, 0)
+    const rows: Array<[string, number]> = [
+      ...head,
+      ['other', otherCount + tail],
+    ]
+    const max = rows[0]?.[1] ?? 1
+    return { rows, max, total, conventional, ai }
+  }, [commits])
+
+  return (
+    <Card className="flex flex-col overflow-hidden p-0">
+      {/* header */}
+      <div className="flex items-center justify-between gap-3 px-4 pt-4 sm:px-5">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg border bg-card">
+            <Tag className="h-4 w-4" />
+          </div>
+          <div>
+            <div className="text-sm font-semibold leading-tight">Conventions</div>
+            <div className="text-[11px] text-muted-foreground">
+              commit types parsed from real subjects
+            </div>
+          </div>
+        </div>
+        {loading ? (
+          <Skeleton className="h-5 w-20" />
+        ) : (
+          <div className="text-right text-[11px] tabular-nums leading-tight text-muted-foreground">
+            <div className="font-semibold text-foreground">
+              {Math.round((analysis.conventional / analysis.total) * 100)}%
+            </div>
+            <div>conventional</div>
+          </div>
+        )}
+      </div>
+
+      {/* bars */}
+      <div className="flex flex-1 flex-col justify-center px-4 pb-1 pt-4 sm:px-5">
+        {loading ? (
+          <div className="space-y-2.5">
+            {[0, 1, 2, 3, 4, 5].map((i) => (
+              <div key={i} className="flex items-center gap-3">
+                <Skeleton className="h-3 w-14 shrink-0" />
+                <Skeleton
+                  className="h-2.5 flex-1 rounded-full"
+                  style={{ width: `${[88, 62, 74, 45, 56, 36][i]}%` }}
+                />
+                <Skeleton className="h-3 w-9 shrink-0" />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <ul className="space-y-[7px]">
+            {analysis.rows.map(([type, count], i) => {
+              const isOther = type === 'other'
+              const pct = (count / analysis.total) * 100
+              return (
+                <li key={type} className="flex items-center gap-2.5">
+                  <span className="w-[52px] shrink-0 truncate font-mono text-[10.5px] font-medium text-muted-foreground">
+                    {isOther ? 'other…' : type}
+                  </span>
+                  <span className="relative h-2.5 min-w-0 flex-1 overflow-hidden rounded-full bg-foreground/[0.06]">
+                    <motion.span
+                      initial={{ width: 0 }}
+                      animate={{ width: `${Math.max(1.5, pct)}%` }}
+                      transition={{
+                        duration: 0.5,
+                        ease: 'easeOut',
+                        delay: Math.min(i * 0.04, 0.3),
+                      }}
+                      className="absolute inset-y-0 left-0 rounded-full"
+                      style={{ backgroundColor: TYPE_COLORS[type] ?? '#a8a29e' }}
+                      title={`${count.toLocaleString()} commits · ${pct.toFixed(1)}%`}
+                    />
+                  </span>
+                  <span className="w-[52px] shrink-0 text-right font-mono text-[10px] tabular-nums text-muted-foreground">
+                    {count.toLocaleString()}
+                    <span className="ml-1 text-muted-foreground/60">
+                      {pct < 10 ? pct.toFixed(1) : Math.round(pct)}%
+                    </span>
+                  </span>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </div>
+
+      {/* AI share strip */}
+      <div className="mt-3 flex items-center justify-between gap-2 border-t px-4 py-2.5 text-[10.5px] text-muted-foreground sm:px-5">
+        <span className="inline-flex items-center gap-1.5">
+          <Sparkles className="h-3 w-3 text-amber-500" />
+          AI-assisted
+          <span className="font-mono font-semibold tabular-nums text-foreground">
+            {analysis.ai.toLocaleString()}
+          </span>
+          <span className="tabular-nums">
+            ({((analysis.ai / analysis.total) * 100).toFixed(1)}%)
+          </span>
+        </span>
+        <span className="text-muted-foreground/70">
+          detected from real trailers
+        </span>
+      </div>
+    </Card>
+  )
+}

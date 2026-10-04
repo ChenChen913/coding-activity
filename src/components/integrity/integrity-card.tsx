@@ -19,6 +19,10 @@ export interface IntegrityCardProps {
   commits?: Array<GitCommit | (GitCommit & { branchCount?: number })>
   fetchMs?: number
   loading: boolean
+  /** true when the client intentionally shows a filtered subset
+   *  (branch / author filter) — the full history is still intact on the
+   *  server, so this is not a truncation failure. */
+  clientFiltered?: boolean
 }
 
 interface Audit {
@@ -92,6 +96,7 @@ export function IntegrityCard({
   commits,
   fetchMs,
   loading,
+  clientFiltered = false,
 }: IntegrityCardProps) {
   const audits = useMemo(
     () => (commits && commits.length > 0 ? auditCommits(commits) : []),
@@ -107,6 +112,8 @@ export function IntegrityCard({
 
   const clientCount = commits?.length ?? 0
   const serverCount = integrity?.fetchedCommits ?? 0
+  const deliveryPass =
+    serverCount > 0 && (clientFiltered || clientCount === serverCount)
 
   return (
     <Collapsible className="rounded-xl border bg-card">
@@ -162,9 +169,24 @@ export function IntegrityCard({
                 pass={integrity.match}
               />
               <Row
-                label="All commits delivered to the client (no truncation)"
-                detail={`${clientCount.toLocaleString()} / ${serverCount.toLocaleString()}`}
-                pass={serverCount > 0 && clientCount === serverCount}
+                label={
+                  clientFiltered ? (
+                    <>
+                      Full history intact — filter active on the client{' '}
+                      <span className="text-muted-foreground">
+                        (branch / author view)
+                      </span>
+                    </>
+                  ) : (
+                    'All commits delivered to the client (no truncation)'
+                  )
+                }
+                detail={
+                  clientFiltered
+                    ? `${clientCount.toLocaleString()} of ${serverCount.toLocaleString()} shown`
+                    : `${clientCount.toLocaleString()} / ${serverCount.toLocaleString()}`
+                }
+                pass={deliveryPass}
               />
               <Row
                 label="Unique commit hashes"

@@ -1,17 +1,18 @@
 'use client'
 
 /**
- * AI Coding Activity — Phase 4 · Commit Graph + Activity Timeline
+ * AI Coding Activity — Phase 5 · Dashboard
  *
  * The graph is the hero: real Git history rendered as a lane-based commit
- * graph with zoom / pan / fit, branch filter, search-to-locate, hover
- * tooltips, keyboard navigation and a detail panel. Below it, every commit
- * flows into a unified Activity Timeline (year histogram + type filters +
- * month groups). Data integrity stays visible at the bottom as the proof
- * that every commit comes from the real repository.
+ * graph with zoom / pan / fit, branch + author filters, search-to-locate,
+ * hover tooltips, keyboard navigation and a detail panel. Below it, an
+ * insights row (contributors / commit rhythm / conventions) drives the same
+ * filters, and every commit flows into a unified Activity Timeline. Data
+ * integrity stays visible at the bottom as the proof that every commit
+ * comes from the real repository.
  */
 
-import { useMemo, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import {
@@ -23,7 +24,9 @@ import {
   Loader2,
   RefreshCw,
   Sparkles,
+  UserRound,
   Users,
+  X,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -40,6 +43,9 @@ import { CommitGraph } from '@/components/git-graph/commit-graph'
 import { CommitSearch } from '@/components/git-graph/commit-search'
 import { CommitDetailPanel } from '@/components/commit-detail/commit-detail-panel'
 import { ActivityTimeline } from '@/components/timeline/activity-timeline'
+import { ContributorCard } from '@/components/dashboard/contributor-card'
+import { RhythmCard } from '@/components/dashboard/rhythm-card'
+import { ConventionsCard } from '@/components/dashboard/conventions-card'
 import { IntegrityCard } from '@/components/integrity/integrity-card'
 import { useClock } from '@/hooks/use-clock'
 import type {
@@ -71,6 +77,12 @@ async function fetchJson<T>(url: string): Promise<T> {
 export default function Home() {
   const [repoId, setRepoId] = useState('demo')
   const [branchFilter, setBranchFilter] = useState('all')
+  /** active author focus — key = email (git identity) so every name
+   *  variant of the same person is included; name is for display */
+  const [authorFilter, setAuthorFilter] = useState<{
+    name: string
+    key: string
+  } | null>(null)
   const [selectedHash, setSelectedHash] = useState<string | null>(null)
 
   /** the graph card — timeline selections scroll it into view */
@@ -90,12 +102,16 @@ export default function Home() {
   })
 
   const commitsQuery = useQuery({
-    queryKey: ['git', 'commits', repoId, branchFilter],
+    queryKey: ['git', 'commits', repoId, branchFilter, authorFilter?.key],
     queryFn: () =>
       fetchJson<CommitsResponse<GraphCommit>>(
         `/api/git/commits?repo=${repoId}&slim=1${
           branchFilter !== 'all'
             ? `&branch=${encodeURIComponent(branchFilter)}`
+            : ''
+        }${
+          authorFilter
+            ? `&author=${encodeURIComponent(authorFilter.key)}`
             : ''
         }`,
       ),
@@ -121,12 +137,23 @@ export default function Home() {
   const switchingRepo = (id: string) => {
     setRepoId(id)
     setBranchFilter('all')
+    setAuthorFilter(null)
     setSelectedHash(null)
   }
 
   /** select from anywhere (timeline / search) — center the graph card on screen */
   const selectAndReveal = (hash: string) => {
     setSelectedHash(hash)
+    graphCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  /** focus the dashboard on one author (toggle off when clicked again).
+   *  Filter key = git identity (email when present) so name variants of
+   *  the same person stay together — the leaderboard count and the
+   *  filtered view always agree. */
+  const focusAuthor = (name: string, key: string) => {
+    setAuthorFilter((prev) => (prev?.key === key ? null : { name, key }))
+    setSelectedHash(null)
     graphCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
@@ -304,6 +331,7 @@ export default function Home() {
                         value={branchFilter}
                         onValueChange={(v) => {
                           setBranchFilter(v)
+                          setAuthorFilter(null)
                           setSelectedHash(null)
                         }}
                       >
@@ -338,6 +366,23 @@ export default function Home() {
                             ))}
                         </SelectContent>
                       </Select>
+                      {authorFilter && (
+                        <span
+                          role="status"
+                          className="inline-flex h-8 max-w-[180px] shrink-0 items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 text-[12px] font-medium text-emerald-800"
+                        >
+                          <UserRound className="h-3.5 w-3.5 shrink-0" />
+                          <span className="truncate">{authorFilter.name}</span>
+                          <button
+                            type="button"
+                            aria-label={`Clear author filter: ${authorFilter.name}`}
+                            onClick={() => setAuthorFilter(null)}
+                            className="ml-0.5 shrink-0 rounded-full p-0.5 transition-colors hover:bg-emerald-100"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      )}
                       <CommitSearch commits={commits} onSelect={setSelectedHash} />
                     </div>
                   }
@@ -352,6 +397,28 @@ export default function Home() {
             </div>
           </Card>
         </div>
+
+        {/* ---------------- INSIGHTS (dashboard) ---------------- */}
+        <section
+          aria-label="Repository insights"
+          className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3"
+        >
+          <ContributorCard
+            className="md:col-span-2 xl:col-span-1"
+            contributors={overview?.contributors ?? []}
+            loading={overviewQuery.isLoading}
+            activeAuthorKey={authorFilter?.key ?? null}
+            onFilterAuthor={focusAuthor}
+          />
+          <RhythmCard
+            commits={commits}
+            loading={commitsQuery.isLoading || !commitsMatchRepo}
+          />
+          <ConventionsCard
+            commits={commits}
+            loading={commitsQuery.isLoading || !commitsMatchRepo}
+          />
+        </section>
 
         {/* ---------------- ACTIVITY TIMELINE ---------------- */}
         <ActivityTimeline
@@ -368,6 +435,7 @@ export default function Home() {
           commits={commits}
           fetchMs={commitsMatchRepo ? commitsData?.fetchMs : undefined}
           loading={commitsQuery.isLoading || !commitsMatchRepo || overviewQuery.isLoading}
+          clientFiltered={branchFilter !== 'all' || authorFilter !== null}
         />
       </main>
 
