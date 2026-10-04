@@ -179,3 +179,6 @@
 html.dark {
   color-scheme: dark;
 }
+
+/* note: release timeline lanes use min-w-[480px] on mobile — see
+   components/dashboard/release-timeline-card.tsx */

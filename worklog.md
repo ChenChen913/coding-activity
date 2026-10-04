@@ -586,3 +586,66 @@ Stage Summary:
 4. Release Timeline 移动端泳道较挤（6 泳道 × 390px）——可加横向滚动
    或泳道折叠（点击 v5 展开 patch 级明细）
 5. self 仓库 18 commits / 8 AI —— "工具开发自己"叙事持续积累
+
+---
+Task ID: 9
+Agent: main (Z.ai Code, cron round 9)
+Task: Phase 6/7 增强延续 —— diff 语法高亮 tokenizer + Release Timeline 泳道折叠/移动端横向滚动
+
+Work Log:
+- 前置回归 QA：页面加载 / Release 卡 305 点 / 窗口化计数 1–80 of 6,735 /
+  graph 键盘容器全通过，控制台零错误
+- 9-a diff 轻量语法高亮（新文件 src/components/commit-detail/diff-highlight.ts，
+  零依赖单遍正则 tokenizer）：
+  → 语言识别按扩展名：clike 家族（ts/js/go/rust/java/cpp/php）、# 注释家族
+    （py/sh/rb/yaml/toml/dockerfile）、json、css/scss、markdown、html/vue、sql
+  → 模块级缓存（12,000 条上限、超限批量驱逐 25%）——diff 中 context/add
+    成对重复文本命中率高
+  → 8 类 token：keyword/string/comment/number/func/type/prop/tag；暖色系
+    亮暗双模式配色（violet 关键字、amber 字符串、orange 数字、teal 函数、
+    emerald 类型），在 add/remove 行底色之上保持可读（VLM 亮暗双确认）
+  → DiffRow 渲染 token 流（plain 用 Fragment 零 span 开销）；DiffFileBlock
+    按路径 useMemo 识别语言一次；未知语言优雅降级为纯文本
+  → JSON 专属逻辑：后跟冒号的字符串识别为 key（violet）与 value（amber）区分
+- 9-b Release Timeline 泳道折叠 + 移动端横向滚动：
+  → 泳道标签（v5/v4/v3…）升级为按钮：点击展开 patch 级明细条——按 minor
+    版本分组（4.22 / 4.21 / …）的 tag chips，annotated 实心点 / lightweight
+    空心点标记，v4 全量 99 chips 零抽样；点 chip 联动 graph 选中 + 详情面板
+  → 【VLM 审查捕获真 bug】明细条初版放在横向滚动容器内，lanes 滚动后
+    chips 左缘被裁剪 → 重构：明细条移到滚动容器外全宽渲染（永不裁剪），
+    展开泳道时自动 scrollTo(left:0) 复位
+  → 移动端 lanes min-w-[480px] + overflow-x-auto + 右缘 swipe 渐变提示
+    （ResizeObserver 判定真实溢出才显示；首次滚动后淡出；sm: 断点不影响桌面）
+  → 【环境坑·已入册】Tailwind 4 增量缓存卡住：新增任意类 min-w-[480px]
+    时 JS chunk 更新但 CSS chunk 陈旧不生成规则（旧 340px 规则残留）→
+    对 globals.css 做真实内容变更强制重建管道；复现时先查 CSS chunk 再改 globals
+- 9-c 样式细节加厚：
+  → DiffFileBlock 文件名后新增语言徽章（JS/TS/JSON…，与高亮共用同一
+    detectLanguage，title 显示 highlighting 语言）
+  → hunk 头（@@ -x +y @@）第二个 @@ 之后的 git 函数上下文以 45% 透明度
+    淡显，行号区更可扫读
+- 验证全绿：lint 零错误；桌面 QA（窗口 80 行 / Load more 1–80→1–160 /
+  v4 展开 99 chips / chip 联动面板 / 徽章 JS×2 / violet 54 + amber 25 token /
+  hunk 淡显×4 / 键盘容器）；移动端 390px（Sheet 抽屉内高亮 27 violet +
+  9 amber / 横向滚动 + swipe 显隐 / 页面零溢出）；VLM×4（diff 亮、diff 暗、
+  release 移动端修复前后）全部 BUGS NONE；全新浏览器会话控制台 0 错误
+- self 仓库真实 commit（带 Claude trailer）
+
+Stage Summary:
+- diff 浏览从黑白文本升级为带语法着色的代码审阅；移动端 Sheet 同等受益
+- Release Timeline 补齐 patch 级明细：305 tags 双层可达（lane dot 概览 →
+  minor chips 精确点选），移动端横向滚动恢复时间轴分辨率
+- 数据诚实性不变：chips 全量零抽样、annotated/lightweight 明示、
+  swipe 提示只在真实可滚时出现
+- 新增可复用资产：diff-highlight.ts tokenizer（未来 file viewer 可直接复用）
+
+未解决问题或风险，建议下一阶段优先事项:
+1. 【下一步主线建议】word-level diff 高亮（行内变更词高亮，GitHub 风格）——
+   tokenizer 基建已就绪：配对相邻 remove/add 行 + 公共前后缀比对即可，
+   预计一个下午工作量
+2. tokenizer 边缘 case：模板字符串 ${} 内部未递归高亮、Vue SFC 块级语法
+   按 clike/html 近似处理（可接受，非缺陷）
+3. Tailwind 增量缓存坑可能复现：新增任意类不生效时，先检查 CSS chunk
+   是否包含规则，再对 globals.css 做真实内容变更强制重建
+4. GitHub events 沙箱共享 IP 限流仍未解除；解除后 live feed 自动点亮
+5. self 仓库 commits / AI commits 持续积累（"工具开发自己"叙事）
