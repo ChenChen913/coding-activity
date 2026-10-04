@@ -5,6 +5,7 @@ import { format } from 'date-fns'
 import { GitMerge, Search, Sparkles, X } from 'lucide-react'
 
 import { Input } from '@/components/ui/input'
+import { CommitTypeBadge } from '@/components/commit-type-badge'
 import type { GraphCommit } from '@/lib/git/types'
 
 export interface CommitSearchProps {
@@ -156,6 +157,9 @@ export function CommitSearch({ commits, onSelect }: CommitSearchProps) {
                       )}
                       {commit.aiAgent && (
                         <Sparkles className="h-3 w-3 shrink-0 text-amber-500" />
+                      )}
+                      {!commit.isMerge && (
+                        <CommitTypeBadge message={commit.message} />
                       )}
                       <span className="truncate text-[13px] font-medium">
                         {commit.message}

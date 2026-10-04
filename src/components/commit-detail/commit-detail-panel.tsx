@@ -20,6 +20,7 @@ import {
 
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { CommitTypeBadge } from '@/components/commit-type-badge'
 import type { CommitDetailResponse, GitRemoteInfo } from '@/lib/git/types'
 import {
   githubCommitUrl,
@@ -36,6 +37,13 @@ export interface CommitDetailPanelProps {
   onClose: () => void
   /** origin remote — GitHub deep links are derived from it (hidden when absent) */
   githubRemote?: GitRemoteInfo | null
+  /** sidebar = right-side panel (desktop) + drawer (mobile);
+   *  below = full-width strip pinned under the graph, always visible
+   *  (horizontal graph mode) */
+  variant?: 'sidebar' | 'below'
+  /** below variant: the hash came from the "always show something"
+   *  fallback (the newest commit), not an explicit selection */
+  isDefaulted?: boolean
 }
 
 async function fetchDetail(
@@ -75,6 +83,8 @@ export function CommitDetailPanel({
   onSelect,
   onClose,
   githubRemote,
+  variant = 'sidebar',
+  isDefaulted = false,
 }: CommitDetailPanelProps) {
   const [copied, setCopied] = useState(false)
 
@@ -112,10 +122,16 @@ export function CommitDetailPanel({
           <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             {c?.isMerge ? 'Merge Commit' : 'Commit'}
           </span>
+          <CommitTypeBadge message={c?.message} />
           {c?.aiAgent && (
             <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-1.5 py-px text-[10px] font-medium text-amber-700 dark:border-amber-400/40 dark:bg-amber-400/15 dark:text-amber-300">
               <Sparkles className="h-2.5 w-2.5" />
               {c.aiAgent}
+            </span>
+          )}
+          {variant === 'below' && isDefaulted && (
+            <span className="ml-1 hidden items-center rounded-full border border-dashed px-1.5 py-px text-[9.5px] font-medium text-muted-foreground sm:inline-flex">
+              latest — click any node to inspect
             </span>
           )}
         </div>
@@ -136,7 +152,12 @@ export function CommitDetailPanel({
             variant="ghost"
             size="icon"
             className="h-6 w-6"
-            aria-label="Close details"
+            aria-label={
+              variant === 'below'
+                ? 'Back to the latest commit'
+                : 'Close details'
+            }
+            title={variant === 'below' ? 'Back to latest' : 'Close details'}
             onClick={onClose}
           >
             <X className="h-3.5 w-3.5" />
@@ -371,8 +392,35 @@ export function CommitDetailPanel({
 
   return (
     <>
+      {/* ---- below variant (horizontal graph): full-width strip pinned
+           under the graph — always visible, never a drawer ---- */}
+      {variant === 'below' && (
+        <motion.section
+          role="complementary"
+          aria-label="Commit details"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.2, ease: 'easeOut' }}
+          className="flex h-[380px] max-h-[62vh] shrink-0 flex-col border-t sm:h-[420px]"
+        >
+          {hash ? (
+            panelContent
+          ) : (
+            <div className="flex flex-1 flex-col items-center justify-center gap-1.5 px-4 py-10 text-center">
+              <GitCommitHorizontal className="h-5 w-5 text-muted-foreground/50" />
+              <p className="text-[12.5px] font-medium text-muted-foreground">
+                No commit selected
+              </p>
+              <p className="text-[11px] text-muted-foreground/70">
+                Click any node in the graph above — its details appear here.
+              </p>
+            </div>
+          )}
+        </motion.section>
+      )}
+
       {/* ---- desktop sidebar (md+) ---- */}
-      {hash && (
+      {variant === 'sidebar' && hash && (
         <motion.aside
           role="complementary"
           aria-label="Commit details"
@@ -386,6 +434,7 @@ export function CommitDetailPanel({
       )}
 
       {/* ---- mobile: full-height sheet (drag to dismiss) ---- */}
+      {variant === 'sidebar' && (
       <Drawer.Root
         open={Boolean(hash)}
         onOpenChange={(open) => {
@@ -413,6 +462,7 @@ export function CommitDetailPanel({
           </Drawer.Content>
         </Drawer.Portal>
       </Drawer.Root>
+      )}
     </>
   )
 }

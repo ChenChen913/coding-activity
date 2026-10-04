@@ -8,13 +8,14 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { motion } from 'framer-motion'
+import { AnimatePresence, motion } from 'framer-motion'
 import { format } from 'date-fns'
 import { toast } from 'sonner'
 import {
   AlertTriangle,
   ArrowDownToLine,
   ArrowLeftRight,
+  ArrowRightToLine,
   ArrowUpDown,
   ArrowUpToLine,
   ImageDown,
@@ -52,6 +53,7 @@ import {
   type GraphLayout,
 } from './layout'
 import { buildPosterSvg, buildViewSvg, downloadSvgAsPng } from './export-graph'
+import { CommitTypeBadge } from '@/components/commit-type-badge'
 
 const GUTTER_W = 44
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -59,7 +61,7 @@ const VISIBLE_BUFFER = 4
 /** horizontal layout: height of the top time-axis strip */
 const AXIS_H = 26
 
-type Orientation = 'vertical' | 'horizontal'
+export type Orientation = 'vertical' | 'horizontal'
 
 interface Transform {
   scale: number
@@ -82,6 +84,11 @@ export interface CommitGraphProps {
   repoLabel?: string
   /** active branch filter label for PNG export headers */
   branchLabel?: string | null
+  /** controlled orientation — when omitted the component keeps its own
+   *  state (persisted to localStorage) so it also works standalone */
+  orientation?: Orientation
+  /** fired when the user toggles vertical / horizontal */
+  onOrientationChange?: (o: Orientation) => void
 }
 
 function clamp(v: number, min: number, max: number): number {
@@ -112,6 +119,8 @@ export function CommitGraph({
   extra,
   repoLabel = 'repository',
   branchLabel = null,
+  orientation: orientationProp,
+  onOrientationChange,
 }: CommitGraphProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
@@ -120,8 +129,13 @@ export function CommitGraph({
   const [t, setT] = useState<Transform>({ scale: 1, tx: 0, ty: 0 })
   const [hoveredRow, setHoveredRow] = useState<number | null>(null)
   const [intro, setIntro] = useState(false)
-  const [orientation, setOrientation] = useState<Orientation>('vertical')
+  /** internal fallback for uncontrolled usage (no orientation prop) */
+  const [orientationLocal, setOrientationLocal] =
+    useState<Orientation>('vertical')
   const [exporting, setExporting] = useState(false)
+  /** travel-direction feedback for horizontal mode (1 = toward newer) */
+  const [flowHint, setFlowHint] = useState<1 | -1 | null>(null)
+  const orientation = orientationProp ?? orientationLocal
   const horiz = orientation === 'horizontal'
 
   const tRef = useRef(t)
@@ -148,6 +162,7 @@ export function CommitGraph({
   const didPan = useRef(false)
   const panAnim = useRef<number | null>(null)
   const moveScheduled = useRef(false)
+  const flowTimer = useRef<number | null>(null)
 
   const cancelPanAnim = useCallback(() => {
     if (panAnim.current !== null) {
@@ -225,26 +240,51 @@ export function CommitGraph({
   }, [])
 
   /* ---------------- orientation persistence ------------------------ */
+  /* uncontrolled mode only: read + persist locally. Controlled mode
+     (orientation prop) delegates storage to the parent. */
   useEffect(() => {
+    if (orientationProp) return
     try {
       const saved = localStorage.getItem('graph-orientation')
-      if (saved === 'horizontal' || saved === 'vertical') setOrientation(saved)
+      if (saved === 'horizontal' || saved === 'vertical')
+        setOrientationLocal(saved)
     } catch {
       /* private mode etc. — default vertical is fine */
     }
-  }, [])
+  }, [orientationProp])
 
   const toggleOrientation = useCallback(() => {
-    setOrientation((prev) => {
-      const next = prev === 'vertical' ? 'horizontal' : 'vertical'
-      try {
-        localStorage.setItem('graph-orientation', next)
-      } catch {
-        /* ignore */
-      }
-      return next
-    })
+    const next: Orientation = horiz ? 'vertical' : 'horizontal'
+    if (onOrientationChange) {
+      onOrientationChange(next)
+      return
+    }
+    setOrientationLocal(next)
+    try {
+      localStorage.setItem('graph-orientation', next)
+    } catch {
+      /* ignore */
+    }
+  }, [horiz, onOrientationChange])
+
+  /* ---------------- travel-direction feedback (horizontal) --------- */
+  /** flash "← older / newer →" while the user pans through time so the
+   *  reading direction of the axis is always obvious */
+  const showFlow = useCallback((dir: 1 | -1) => {
+    if (flowTimer.current !== null) window.clearTimeout(flowTimer.current)
+    flowTimer.current = window.setTimeout(() => {
+      flowTimer.current = null
+      setFlowHint(null)
+    }, 650)
+    setFlowHint((prev) => (prev === dir ? prev : dir))
   }, [])
+
+  useEffect(
+    () => () => {
+      if (flowTimer.current !== null) window.clearTimeout(flowTimer.current)
+    },
+    [],
+  )
 
   /* ---------------- clamped pan/zoom helpers ------------------------ */
 
@@ -449,13 +489,16 @@ export function CommitGraph({
         // horizontal layout: the time axis runs along x — the vertical
         // wheel travels through time, sideways deltas move across lanes
         setT((prev) => ({ ...prev, tx: prev.tx - e.deltaY, ty: prev.ty + e.deltaX }))
+        // wheel down (deltaY > 0) → tx shrinks → visible world x grows →
+        // traveling toward newer commits (which live on the right)
+        if (e.deltaY !== 0) showFlow(e.deltaY > 0 ? 1 : -1)
       } else {
         setT((prev) => ({ ...prev, ty: prev.ty + e.deltaY, tx: prev.tx + e.deltaX }))
       }
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
-  }, [zoomAt, cancelPanAnim, horiz])
+  }, [zoomAt, cancelPanAnim, horiz, showFlow])
 
   /* ---------------- pointer pan / pinch ------------------------------ */
   /* window-level move/up listeners are installed once; they no-op unless
@@ -473,6 +516,10 @@ export function CommitGraph({
         const dx = e.clientX - s.x
         const dy = e.clientY - s.y
         if (Math.abs(dx) + Math.abs(dy) > 4) didPan.current = true
+        // horizontal drag through time: content follows the finger —
+        // dragging right (dx > 0) pulls OLDER commits into view
+        if (Math.abs(dx) > 5 && Math.abs(dx) > Math.abs(dy) && horiz)
+          showFlow(dx > 0 ? -1 : 1)
         if (moveScheduled.current) return
         moveScheduled.current = true
         const fdx = dx
@@ -514,7 +561,7 @@ export function CommitGraph({
       window.removeEventListener('pointerup', onUp)
       window.removeEventListener('pointercancel', onUp)
     }
-  }, [])
+  }, [showFlow, horiz])
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
@@ -731,7 +778,8 @@ export function CommitGraph({
       if (m.row < visible.startRow - 2 || m.row > visible.endRow + 2) continue
       if (!m.isYearStart && !showMonths) continue
       const x = LEFT_PAD + (n - 1 - m.row) * geo.rh + geo.rh / 2 + effTx
-      if (x < 18 || x > size.w - 10) continue
+      // keep clear of the fixed direction anchors at both ends
+      if (x < 76 || x > size.w - 64) continue
       if (x - lastX < 30) continue
       lastX = x
       out.push({
@@ -742,6 +790,33 @@ export function CommitGraph({
     }
     return out
   }, [layout, geo, visible, effTx, size.w, horiz])
+
+  /* ---------------- back-to-home (newest) floating button ----------- */
+  /** true once the viewport has travelled away from the newest commits:
+   *  vertical → scrolled down from the top; horizontal → panned left of
+   *  the right edge where the newest commits live */
+  const awayFromHome = geo
+    ? horiz
+      ? hTimeW > size.w && effTx - (size.w - hTimeW) > 120
+      : geo.totalH > viewH && effTy > 120
+    : false
+
+  const goHome = useCallback(() => {
+    if (horiz) {
+      const lay = layoutRef.current
+      if (!lay) return
+      const g = computeGeo(lay, tRef.current.scale, commitsRef.current.length)
+      const n = commitsRef.current.length
+      const timeW = LEFT_PAD * 2 + n * g.rh
+      const w = sizeRef.current.w
+      animateTo({
+        ty: tyRef.current,
+        tx: timeW <= w ? (w - timeW) / 2 : w - timeW,
+      })
+    } else {
+      animateTo({ ty: 0 })
+    }
+  }, [horiz, animateTo])
 
   const zoomPct = Math.round(t.scale * 100)
 
@@ -1062,6 +1137,13 @@ export function CommitGraph({
                     {m.label}
                   </div>
                 ))}
+                {/* fixed direction anchors — time flows left → right */}
+                <span className="absolute inset-y-0 left-0 flex items-center bg-gradient-to-r from-background via-background/85 to-transparent pl-2.5 pr-7 text-[10px] font-medium text-muted-foreground">
+                  ← older
+                </span>
+                <span className="absolute inset-y-0 right-0 flex items-center bg-gradient-to-l from-background via-background/85 to-transparent pl-7 pr-2.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                  newer →
+                </span>
               </div>
             )}
 
@@ -1270,6 +1352,7 @@ export function CommitGraph({
                     onMouseEnter={() => setHoveredRow(nd.row)}
                   >
                     <span className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+                      <CommitTypeBadge message={c.message} />
                       <span
                         className={`min-w-[48px] truncate text-[13px] ${
                           isSelected ? 'font-semibold' : 'font-medium'
@@ -1334,6 +1417,7 @@ export function CommitGraph({
                     <span className="font-mono text-[10px] text-muted-foreground">
                       {hoveredCommit.shortHash}
                     </span>
+                    <CommitTypeBadge message={hoveredCommit.message} />
                     {hoveredCommit.isMerge && (
                       <span className="rounded-full border px-1 py-px text-[9px] font-medium text-muted-foreground">
                         MERGE
@@ -1375,6 +1459,63 @@ export function CommitGraph({
               <span className="text-border">/</span>
               <span>{commits.length.toLocaleString()}</span>
             </div>
+
+            {/* travel-direction feedback (horizontal) — flashes while
+                panning, makes the axis reading direction unmistakable */}
+            {horiz && (
+              <AnimatePresence>
+                {flowHint !== null && (
+                  <motion.div
+                    key="flow-hint"
+                    initial={{ opacity: 0, y: 8, x: '-50%' }}
+                    animate={{ opacity: 1, y: 0, x: '-50%' }}
+                    exit={{ opacity: 0, y: 8, x: '-50%' }}
+                    transition={{ duration: 0.16, ease: 'easeOut' }}
+                    className={`pointer-events-none absolute bottom-2 left-1/2 z-10 inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-semibold shadow-sm backdrop-blur-sm ${
+                      flowHint === 1
+                        ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                        : 'border-border bg-background/85 text-muted-foreground'
+                    }`}
+                  >
+                    {flowHint === 1 ? 'newer →' : '← older'}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            )}
+
+            {/* back to newest commits — floats in once you travel away
+                (vertical: back to top · horizontal: back to right edge) */}
+            <AnimatePresence>
+              {awayFromHome && (
+                <motion.div
+                  key="back-home"
+                  initial={{ opacity: 0, scale: 0.8, y: 6 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.8, y: 6 }}
+                  transition={{ duration: 0.18, ease: 'easeOut' }}
+                  className="absolute bottom-10 right-2 z-20"
+                >
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-10 w-10 rounded-full border-border/80 bg-background/90 shadow-md backdrop-blur-md"
+                    aria-label={
+                      horiz
+                        ? 'Back to the newest commits (right edge)'
+                        : 'Back to the newest commits (top)'
+                    }
+                    title={horiz ? 'Back to latest' : 'Back to top'}
+                    onClick={goHome}
+                  >
+                    {horiz ? (
+                      <ArrowRightToLine className="h-4 w-4" />
+                    ) : (
+                      <ArrowUpToLine className="h-4 w-4" />
+                    )}
+                  </Button>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </>
         )}
       </div>

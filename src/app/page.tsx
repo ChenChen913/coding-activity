@@ -12,7 +12,7 @@
  * comes from the real repository.
  */
 
-import { useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { motion } from 'framer-motion'
@@ -95,8 +95,42 @@ export default function Home() {
   } | null>(null)
   const [selectedHash, setSelectedHash] = useState<string | null>(null)
 
+  /** graph orientation — lifted here so the page layout can react to it
+   *  (horizontal mode pins the detail panel below the graph, always
+   *  visible); persisted to localStorage, shared with the graph */
+  const [orientation, setOrientation] = useState<'vertical' | 'horizontal'>(
+    'vertical',
+  )
+
   /** the graph card — timeline selections scroll it into view */
   const graphCardRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    // rAF-wrapped: reading a browser-only store after mount (SSR-safe),
+    // async so the lint set-state-in-effect rule stays satisfied
+    const raf = requestAnimationFrame(() => {
+      try {
+        const saved = localStorage.getItem('graph-orientation')
+        if (saved === 'horizontal' || saved === 'vertical')
+          setOrientation(saved)
+      } catch {
+        /* private mode — default vertical is fine */
+      }
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [])
+
+  const toggleOrientation = useCallback(() => {
+    setOrientation((prev) => {
+      const next = prev === 'vertical' ? 'horizontal' : 'vertical'
+      try {
+        localStorage.setItem('graph-orientation', next)
+      } catch {
+        /* ignore */
+      }
+      return next
+    })
+  }, [])
 
   const now = useClock()
 
@@ -160,6 +194,7 @@ export default function Home() {
       within the same repo keep the old graph visible (no blank window). */
   const commitsMatchRepo = commitsData?.repoId === repoId
   const commits = commitsMatchRepo ? (commitsData?.commits ?? []) : []
+  const horizGraph = orientation === 'horizontal'
 
   /** same cross-repo guard for tags + github events */
   const tags = tagsData?.repoId === repoId ? (tagsData?.tags ?? []) : []
@@ -375,12 +410,20 @@ export default function Home() {
         {/* ---------------- COMMIT GRAPH (hero) ---------------- */}
         <div ref={graphCardRef} className="scroll-mt-20">
           <Card className="overflow-hidden p-0">
-            <div className="flex flex-col md:flex-row">
+            {/* horizontal mode stacks: graph on top, commit details pinned
+                below it — always visible; vertical keeps the side panel */}
+            <div
+              className={
+                horizGraph ? 'flex flex-col' : 'flex flex-col md:flex-row'
+              }
+            >
               <div className="min-w-0 flex-1">
                 {/* key={repoId}: fresh mount per repository so placeholder
                     data from another repo is never shown */}
                 <CommitGraph
                   key={repoId}
+                  orientation={orientation}
+                  onOrientationChange={toggleOrientation}
                   commits={commits}
                   loading={commitsQuery.isLoading || !commitsMatchRepo}
                   fetching={commitsQuery.isFetching && commitsMatchRepo}
@@ -463,8 +506,16 @@ export default function Home() {
                 />
               </div>
               <CommitDetailPanel
+                variant={horizGraph ? 'below' : 'sidebar'}
                 repoId={repoId}
-                hash={selectedHash}
+                hash={
+                  horizGraph
+                    ? (selectedHash ?? commits[0]?.hash ?? null)
+                    : selectedHash
+                }
+                isDefaulted={
+                  horizGraph && selectedHash === null && commits.length > 0
+                }
                 onSelect={setSelectedHash}
                 onClose={() => setSelectedHash(null)}
                 githubRemote={overview?.repo.remote ?? null}

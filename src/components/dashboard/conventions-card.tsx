@@ -15,35 +15,10 @@ import { Sparkles, Tag } from 'lucide-react'
 
 import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
+import { parseCommitType, TYPE_META, type CommitType } from '@/lib/commit-type'
 import type { GraphCommit } from '@/lib/git/types'
 
 const MAX_ROWS = 8
-
-/** type → color (warm/green palette, no blues) */
-const TYPE_COLORS: Record<string, string> = {
-  feat: '#059669',
-  fix: '#be123c',
-  docs: '#ca8a04',
-  build: '#7c2d12',
-  chore: '#78716c',
-  ci: '#a21caf',
-  refactor: '#0d9488',
-  test: '#4d7c0f',
-  perf: '#b45309',
-  style: '#d4a373',
-  revert: '#57534e',
-  deps: '#9a3412',
-  other: '#a8a29e',
-}
-
-/** parse "fix(scope)!: subject" → "fix"; "Revert \"x\"" → "revert"; else null */
-function parseType(message: string): string {
-  const m = /^(?:revert:\s|revert\s|(\w+)(?:\([\w./-]+\))?(!)?:\s)/i.exec(message)
-  if (!m) return 'other'
-  if (/^revert/i.test(message)) return 'revert'
-  const t = (m[1] ?? '').toLowerCase()
-  return t || 'other'
-}
 
 export interface ConventionsCardProps {
   commits: GraphCommit[]
@@ -56,18 +31,20 @@ export function ConventionsCard({ commits, loading }: ConventionsCardProps) {
     let conventional = 0
     let ai = 0
     for (const c of commits) {
-      const t = parseType(c.message)
+      const t = parseCommitType(c.message)
       counts.set(t, (counts.get(t) ?? 0) + 1)
-      if (t !== 'other') conventional += 1
+      // merges are structural (git-generated), not convention-typed
+      if (t !== 'other' && t !== 'merge') conventional += 1
       if (c.aiAgent) ai += 1
     }
     const total = commits.length || 1
     // named types sorted by frequency; "other" always sinks to the last
-    // row (merged with any tail types beyond MAX_ROWS) — the catch-all
-    // should never visually dominate the real conventions.
-    const otherCount = counts.get('other') ?? 0
+    // row (merged with any tail types beyond MAX_ROWS + structural merges)
+    // — the catch-all should never visually dominate the real conventions.
+    const otherCount =
+      (counts.get('other') ?? 0) + (counts.get('merge') ?? 0)
     const named = [...counts.entries()]
-      .filter(([t]) => t !== 'other')
+      .filter(([t]) => t !== 'other' && t !== 'merge')
       .sort((a, b) => b[1] - a[1])
     const head = named.slice(0, MAX_ROWS - 1)
     const tail = named.slice(MAX_ROWS - 1).reduce((s, [, n]) => s + n, 0)
@@ -156,7 +133,10 @@ export function ConventionsCard({ commits, loading }: ConventionsCardProps) {
                         delay: Math.min(i * 0.04, 0.3),
                       }}
                       className="absolute inset-y-0 left-0 rounded-full"
-                      style={{ backgroundColor: TYPE_COLORS[type] ?? '#a8a29e' }}
+                      style={{
+                        backgroundColor:
+                          TYPE_META[type as CommitType]?.color ?? '#a8a29e',
+                      }}
                       title={`${count.toLocaleString()} commits · ${pct.toFixed(1)}%`}
                     />
                   </span>

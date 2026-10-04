@@ -724,3 +724,87 @@ Stage Summary:
 4. poster 横版在超长仓库（>6,400 commits）下 rh≈2.5px 仅可辨识结构
    纹理；可按需提供「分段导出」（如按年切片多张海报）
 5. self 仓库叙事持续积累：本次为第 10 个 Task commit（含 11 个 AI commit）
+
+---
+Task ID: 11
+Agent: main (Z.ai Code, user-requested round)
+Task: 用户两部分需求 —— ①图表展示优化（返回顶部按钮 / 横版方向标识 / 横版详情下方常显）②提交记录类型视觉区分（build/fix/发版本等按关键词着色）+ 推送 GitHub
+
+Work Log:
+- 11-a 共享类型系统（新文件 src/lib/commit-type.ts + commit-type-badge.tsx）：
+  → parseCommitType：merge 前缀（Merge branch/pull request…）→ revert
+    （Revert "/revert:）→ conventional commits type(scope)!:（含别名
+    feature/bugfix/hotfix/tests/docs…；chore(release)/build(release) 折叠
+    为 release）→ 纯文本 release 风格（Release x / v1.2.3 / bump version）
+    → 其余诚实归 other
+  → TYPE_META 15 类色板（暖色/绿/紫，零蓝色）：feat emerald / fix red /
+    docs yellow / style orange / refactor teal / perf amber / test lime /
+    build 深棕 / deps 橙棕 / ci fuchsia / chore stone / revert 深石 /
+    release rose / merge teal(hidden) / other(hidden)
+  → CommitTypeBadge：色块 chip（border+bg+亮暗双模式文字）；merge/other
+    渲染 null（由既有图标语义承担）
+- 11-b 图内「返回最新」浮动按钮（竖版=返回顶部 / 横版=回到右缘）：
+  → awayFromHome 判定：竖版 effTy>120；横版 hTimeW>w 且偏离 home tx>120
+  → AnimatePresence 缩放淡入；位于位置指示器上方 bottom-10 right-2；
+    h-10 w-10 圆钮（触摸友好）；goHome 用 animateTo 缓动（横版保持 lane
+    y 不变只做时间旅行）
+- 11-c 横版方向标识（用户要求"最起码给一个箭头"）：
+  → 时间轴两端常驻锚点：左「← older」（渐变遮罩防与年月标签冲突，
+    axisMarks 过滤边距 18→76/64px）、右「newer →」（emerald 强调）
+  → 平移方向实时反馈 chip：wheel（deltaY>0→newer）/拖拽（dx>0→older）
+    触发 showFlow，650ms 自动消退，AnimatePresence 底部居中闪现
+    （newer→emerald / ←older 灰）；ref+timer 防重渲染风暴
+- 11-d 横版详情面板移至图下方并常显：
+  → orientation 状态提升至 page.tsx（localStorage init rAF 包裹过 lint；
+    toggle 双向持久化）；CommitGraph 改受控/非受控双模式（prop 优先，
+    无 prop 时回退内部状态，向后兼容）
+  → CommitDetailPanel 新增 variant='below'：全宽 h-[380px]/sm:420px、
+    max-h-[62vh]、border-t、独立滚动；hash 兜底 selectedHash ?? commits[0]
+    （最新 commit）→ "一直显示"；isDefaulted 时头部虚线 chip 提示
+    "latest — click any node to inspect"；关闭钮语义变为 Back to latest
+  → 竖版零回归：sidebar + 移动端 Drawer 保持原行为（variant='sidebar'）
+- 11-e 类型视觉区分全 surface 落地：
+  → graph 竖版消息列表行首徽章 + tooltip 徽章（92 个实测 BUILD/DEPS/
+    FIX/RELEASE/CI）
+  → Activity Timeline：标题前徽章（70 个）+ 轨道图标按类型着色
+    （border/bg/图标 color 三处 hex 淡染，67 个；AI/merge/release 优先
+    保持既有语义色）
+  → 搜索结果、详情面板头部徽章；Conventions 卡重构为共享 parseCommitType
+    + TYPE_META（色板单一来源；merge 结构性提交并入 other 行不参与
+    conventional % 分子）
+- 11-f 验证矩阵（agent-browser + VLM）：
+  → 竖版：wheel 下滚 14×260 → 按钮出现（99–125 行）→ 点击 → 1–22 行
+    → 按钮自动隐藏 ✅
+  → 横版：← older/newer → 锚点常驻；wheel 平移抓到 "newer →" chip 实时
+    闪现；平移 3600px → Back to latest 出现（98–142 行）→ 点击回 1–39 ✅
+  → 横版下方面板：默认显示最新 commit（BUILD 徽章 + hinted chip）；
+    点中列节点 → 面板联动 DOCS commit + pulse-ring + hint 消失 ✅
+  → 移动端 390px：横版零横向溢出、方向锚点可见、面板 380px 可读
+    （VLM 确认无 cut-off）；切回竖版 Drawer 选择正常弹出 ✅
+  → 桌面竖版回归：侧面板 + RELEASE 徽章正常；localStorage 横竖持久化 ✅
+  → 控制台零错误；dev.log 全 API 200；lint 零错误；VLM×3 全程无布局缺陷
+- 【环境坑补充】agent-browser eval 不支持箭头函数（返回 {}）——必须用
+  (function(){...})() IIFE 表达式；Fast Refresh 编辑期会话会卡 skeleton，
+  reload 后恢复
+- self 仓库真实 commit（带 Claude trailer）+ 推送 GitHub
+
+Stage Summary:
+- 图表导航补齐"长图回位"能力：两方向浮动按钮 + 横版双向时间轴锚点 +
+  平移方向实时反馈，横版阅读方向从"猜"变为"一眼可读"
+- 横版信息架构完成对称：竖版右侧面板 ⇄ 横版下方常显面板（默认展示最新
+  commit，永不为空），点击节点即时联动
+- 记录系统获得"性质维度"：15 类提交记录全 surface 色块区分（graph 列表/
+  tooltip/搜索/timeline/详情面板/Conventions 卡同色），构建/修复/发版本
+  等一眼可辨；数据诚实性不变——解析只认真实固定词汇，其余保持 other 可见
+
+未解决问题或风险，建议下一阶段优先事项:
+1. 【下一步建议】Timeline 类型筛选：把 Conventions 卡的行变成可点击
+   filter（需把 typeFilter 状态提升或通过 URL query 共享），"点卡片行
+   →timeline 只看 fix"闭环；顺带给 GitHub events 行也加类型徽章
+2. 【下一步建议】横版 lane 侧标签：目前横版看不到分支名，可在左侧固定
+   一列 lane 序号或分支 tip 名（laneOf 的 headBranches 已有数据）
+3. PNG 导出（export-graph.ts 程序化 SVG）尚未包含类型徽章与方向锚点，
+   导出图与屏上图有轻微视觉差（可接受，结构一致）
+4. 横版 below 面板在 390px 手机上位于首屏折叠线下（正常文档流），若要
+   首屏可见可考虑移动端横版默认收起为 240px 高
+5. self 仓库叙事持续积累：本次为第 11 个 Task commit

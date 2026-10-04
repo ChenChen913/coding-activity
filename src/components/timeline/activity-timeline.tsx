@@ -29,6 +29,8 @@ import {
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
+import { CommitTypeBadge } from '@/components/commit-type-badge'
+import { parseCommitType, TYPE_META } from '@/lib/commit-type'
 import type {
   GithubEventActivity,
   GithubEventsResult,
@@ -651,6 +653,19 @@ export function ActivityTimeline({
                     const isSelected = a.commitHash === selectedHash
                     const isAi = Boolean(a.aiAgent)
                     const isRelease = Boolean(a.release)
+                    /** record nature — colored per the shared type palette
+                     *  (feat/fix/build/release/…) so every kind of record is
+                     *  visually distinguishable at a glance */
+                    const recordType = isRelease
+                      ? null
+                      : parseCommitType(a.title)
+                    const typeColor =
+                      recordType &&
+                      recordType !== 'other' &&
+                      recordType !== 'merge' &&
+                      !isAi
+                        ? TYPE_META[recordType].color
+                        : null
                     return (
                       <li key={a.id} className="relative flex">
                         {/* rail */}
@@ -685,6 +700,22 @@ export function ActivityTimeline({
                               className="flex h-[22px] w-[22px] items-center justify-center rounded-full border border-teal-300 bg-teal-50 shadow-sm dark:border-teal-400/40 dark:bg-teal-400/15"
                             >
                               <GitMerge className="h-3 w-3 text-teal-600 dark:text-teal-300" />
+                            </motion.span>
+                          ) : typeColor ? (
+                            <motion.span
+                              initial={{ scale: 0, opacity: 0 }}
+                              animate={{ scale: 1, opacity: 1 }}
+                              transition={{ duration: 0.25, ease: 'easeOut' }}
+                              className="flex h-[22px] w-[22px] items-center justify-center rounded-full border shadow-sm"
+                              style={{
+                                borderColor: `${typeColor}55`,
+                                backgroundColor: `${typeColor}14`,
+                              }}
+                            >
+                              <GitCommitHorizontal
+                                className="h-3 w-3"
+                                style={{ color: typeColor }}
+                              />
                             </motion.span>
                           ) : (
                             <motion.span
@@ -721,6 +752,9 @@ export function ActivityTimeline({
                         >
                           <span className="min-w-0 flex-1">
                             <span className="flex min-w-0 items-center gap-1.5">
+                              {!isRelease && (
+                                <CommitTypeBadge message={a.title} />
+                              )}
                               <span
                                 className={`truncate text-[13px] ${
                                   isSelected ? 'font-semibold' : 'font-medium'
