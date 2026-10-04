@@ -19,6 +19,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import type { CommitDetailResponse } from '@/lib/git/types'
+import { ChangedFiles } from './changed-files'
 
 export interface CommitDetailPanelProps {
   repoId: string
@@ -292,6 +293,11 @@ export function CommitDetailPanel({
                   </p>
                 </MetaRow>
               )}
+            </div>
+
+            {/* changed files + on-demand diff */}
+            <div className="border-t pt-3">
+              <ChangedFiles repoId={repoId} hash={c.hash} />
             </div>
           </div>
         )}
