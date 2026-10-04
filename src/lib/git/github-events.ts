@@ -163,10 +163,14 @@ export async function getGithubEvents(
 
   let result: GithubEventsResult
   try {
+    // Optional PAT: raises the rate limit from 60/h (shared IP) to 5,000/h
+    // and also unlocks private-repo events when the token has scope.
+    const token = process.env.GITHUB_TOKEN
     const res = await fetch(api, {
       headers: {
         Accept: 'application/vnd.github+json',
         'User-Agent': 'ai-coding-activity',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       signal: AbortSignal.timeout(8_000),
       cache: 'no-store',

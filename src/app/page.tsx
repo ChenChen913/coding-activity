@@ -201,7 +201,7 @@ export default function Home() {
     <div className="flex min-h-screen flex-col bg-background">
       {/* ---------------- header ---------------- */}
       <header className="sticky top-0 z-20 border-b bg-background/80 backdrop-blur-md">
-        <div className="mx-auto flex max-w-[1200px] items-center justify-between gap-4 px-4 py-3 sm:px-6">
+        <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-4 py-3 sm:px-6">
           <div className="flex items-center gap-2.5">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg border bg-gradient-to-br from-emerald-500/15 to-teal-500/10 dark:from-emerald-400/20 dark:to-teal-400/10">
               <ActivityIcon className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
@@ -235,7 +235,7 @@ export default function Home() {
       </header>
 
       {/* ---------------- body ---------------- */}
-      <main className="mx-auto w-full max-w-[1200px] flex-1 space-y-5 px-4 py-6 sm:px-6">
+      <main className="mx-auto w-full max-w-[1600px] flex-1 space-y-5 px-4 py-6 sm:px-6">
         {/* repository bar */}
         <motion.section
           aria-label="Repository"
@@ -393,6 +393,12 @@ export default function Home() {
                   selectedHash={selectedHash}
                   onSelect={setSelectedHash}
                   currentBranch={overview?.repo.currentBranch ?? ''}
+                  repoLabel={
+                    overview?.repo.fullName ?? overview?.repo.name ?? repoId
+                  }
+                  branchLabel={
+                    branchFilter !== 'all' ? branchFilter : null
+                  }
                   extra={
                     <div className="flex min-w-0 items-center gap-2">
                       <Select
@@ -545,7 +551,7 @@ export default function Home() {
 
       {/* ---------------- footer ---------------- */}
       <footer className="mt-auto border-t">
-        <div className="mx-auto flex max-w-[1200px] flex-wrap items-center justify-between gap-2 px-4 py-4 text-xs text-muted-foreground sm:px-6">
+        <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-2 px-4 py-4 text-xs text-muted-foreground sm:px-6">
           <span className="inline-flex items-center gap-1.5">
             <GitBranch className="h-3 w-3 shrink-0 text-emerald-600 dark:text-emerald-400" />
             Git is the single source of truth — no fabricated data, no hidden

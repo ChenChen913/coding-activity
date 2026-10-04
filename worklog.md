@@ -649,3 +649,78 @@ Stage Summary:
    是否包含规则，再对 globals.css 做真实内容变更强制重建
 4. GitHub events 沙箱共享 IP 限流仍未解除；解除后 live feed 自动点亮
 5. self 仓库 commits / AI commits 持续积累（"工具开发自己"叙事）
+
+---
+Task ID: 10
+Agent: main (Z.ai Code, user-requested round)
+Task: 用户七项需求 —— GitHub 推送 / 光标 bug / 横版切换 / 布局加宽 / PNG 导出 / 使用文档 + 采纳既有建议（token live events / word-diff）
+
+Work Log:
+- 10-a 代码推送 GitHub：
+  → 推送前卫生清理：解除跟踪 .env（仅含本地 sqlite URL 无秘密）、
+    db/custom.db、tool-results/（.gitignore 补 db/*.db 与 tool-results/）
+  → API 建仓 ChenChen913/coding-activity（public，两词命名）；token 仅存
+    本地 .git/config 与 .env.local（均不入库，git check-ignore 验证）
+  → 首推 main 成功（1feb216）；后续每阶段及时续推
+- 10-b 严重 bug：图内光标定位与实际不一致 —— 双根因修复：
+  → 根因① rowFromClientY 把视口坐标当容器坐标（漏减 rect.top），
+    图卡不在视口顶部时 hover 行偏差几十行
+  → 根因② 行判定公式多减半行高（-rh/2），hover 判定带整体上移 17.5px，
+    光标在节点正中命中上一行 —— 用 CDP 真实鼠标事件 4/4 全对齐验证
+  → rowFromClientX（横版）同步推导并修掉符号错误（world = screen − tx）
+- 10-c 横版切换（orientation toggle）：
+  → 新增 HorizontalGraph 子组件：时间左→右（最新在右）、泳道上→下、
+    顶部时间轴（年/月标签+年网格线）、hover 列高亮、tooltip 复用
+  → 全交互适配：wheel（竖轮=时间旅行）、拖拽/双指缩放（坐标约定不变）、
+    键盘 ←→=新旧导航、选中居中（x 轴）、Latest/Oldest、fit、可见窗口
+  → 持久化 localStorage('graph-orientation')；竖版零回归（列表仅竖版渲染）
+  → 修复横版可见列窗口符号 bug（effTx 应取负：visible world = [−tx, −tx+w]）
+- 10-d 布局加宽：页面容器 max-w-[1200px]→[1600px]（header/main/footer
+  三处）；时间列 w-[52px]→w-16+whitespace-nowrap（22 格 0 折行）；
+  泳道区上限 460→520
+- 10-e PNG 导出（新文件 export-graph.ts，零依赖）：
+  → 程序化 SVG 重建（非 DOM 克隆）：系统字体、亮暗主题自适应配色、
+    merge/AI/selected 标记全套复刻；canvas 栅格化 + 安全缩放
+    （MAX_PNG_SIDE=32000 自动降档）
+  → 菜单四项：当前视图 2×/3×/4× + 全历史海报（6,430 commits 全量，
+    行距自适应 budget/n，超清 548×32000 实测全链路日志通过）
+  → 实测 3× 导出 3690×1800 PNG 落盘 + VLM 审查 BUGS NONE
+  → 【环境注】headless Chrome 拦截连续自动下载（首次成功后续静默丢弃），
+    系浏览器自动化副作用，真实用户点击不受影响
+- 10-f GITHUB_TOKEN（采纳建议）：github-events.ts 注入 Bearer 头
+  （60/h→5,000/h）；.env.local 写入用户 token（gitignored）+
+  .env.example 模板；实测 demo 仓库 93 条真实事件点亮（UI 呈现
+  starred/pushed 行）；self 仓库随推送获得 remote → available:true
+- 10-g word-level diff 高亮（采纳建议）：remove/add 行配对 → 公共前后缀
+  对齐 + 词边界吸附（不拆词）→ 行内变更字符深色块（emerald/red 30%），
+  token 跨界智能拆分渲染；实测 res.send 修复 66 个行内标记 +
+  VLM 确认「变更词块明显强于行底色」
+- 10-h 使用文档 README.md（中文，~200 行）：快速开始 / 仓库注册表机制
+  （30 秒接入任意本地仓库）/ AI Agent 日常监控工作流（trailer 协议 +
+  四步看板指南）/ 本地 Agent·IDE 结合（已实现 4 项 + 推荐玩法 4 项 +
+  未实现清单）/ GitHub 集成与推送监控 / FAQ（含数据诚实性问答）
+- 验证矩阵：lint 零错误；全新会话控制台 0 错误；hover 4/4 CDP 对齐；
+  横版 41 circles/40 paths 渲染 + hover 放大 + 移动端 390px 零溢出；
+  竖版全链路（timeline 点击→pulse-ring 视口内→详情面板）；VLM×4
+  （导出 3×/横版/word-diff/暗色整页）全 BUGS NONE；live events 93 条
+- self 仓库真实 commit（带 Claude trailer）+ 推送 GitHub
+
+Stage Summary:
+- 七项用户需求全部落地 + 两项既有建议（token events、word-diff）同步完成
+- 光标 bug 是双根因叠加（视口坐标 + 半行偏移），真实鼠标事件验证彻底修复
+- 横版视图让「时间维度」第一次可以在水平方向平移浏览，与竖版共享全部
+  数据/配色/交互语义；导出功能补齐「离开浏览器分享」场景
+- 项目已上线 GitHub：https://github.com/ChenChen913/coding-activity
+  （public；README 即使用文档；self 仓库从此有真实 remote 与 live events）
+
+未解决问题或风险，建议下一阶段优先事项:
+1. 【下一步建议】GitHub events 现已可用 —— 可做 live feed 与 timeline
+   的「实时区」（push 后自动刷新，轮询 60s）；再加 Push/PR/Release
+   活动类型在 timeline 中的展示（结构早已就绪）
+2. 横版模式暂无消息列表（行列表与横向时间轴无法对齐，tooltip+详情面板
+   替代）—— 可加「悬浮列信息条」显示光标所在 commit 摘要
+3. headless Chrome 连续下载拦截仅影响自动化 QA，不影响真实用户；
+   QA 脚本如需验证下载可每次重启浏览器会话
+4. poster 横版在超长仓库（>6,400 commits）下 rh≈2.5px 仅可辨识结构
+   纹理；可按需提供「分段导出」（如按年切片多张海报）
+5. self 仓库叙事持续积累：本次为第 10 个 Task commit（含 11 个 AI commit）

@@ -1,11 +1,81 @@
 'use client'
 
-import { Fragment, memo, useMemo } from 'react'
+import { Fragment, memo, useMemo, type ReactNode } from 'react'
 import { ChevronsUpDown } from 'lucide-react'
 
 import type { DiffFile, DiffLine } from './diff-parser'
 import { baseName, dirName } from './diff-parser'
 import { detectLanguage, tokenizeLine, type TokenType } from './diff-highlight'
+
+/* ------------------------------------------------------------------ */
+/*  Word-level change detection (GitHub-style inline highlight)        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * For a paired remove/add line: find the common prefix & suffix by
+ * character, then snap both to whitespace boundaries so whole words
+ * (never fragments) get the stronger inline background.
+ */
+function wordRange(
+  removeText: string,
+  addText: string,
+): { remove: [number, number]; add: [number, number] } | null {
+  if (!removeText || !addText) return null
+  if (removeText === addText) return null
+  if (removeText.length > 2000 || addText.length > 2000) return null
+
+  let p = 0
+  const minLen = Math.min(removeText.length, addText.length)
+  while (p < minLen && removeText[p] === addText[p]) p++
+  let s = 0
+  while (s < minLen - p && removeText[removeText.length - 1 - s] === addText[addText.length - 1 - s]) s++
+
+  // snap prefix forward to the last whitespace inside the common run
+  const pre = removeText.slice(0, p)
+  const preWs = Math.max(pre.lastIndexOf(' '), pre.lastIndexOf('\t'), pre.lastIndexOf('/'))
+  if (preWs !== -1) p = preWs + 1
+
+  // snap suffix back to start after a whitespace inside the common tail
+  const suf = removeText.slice(removeText.length - s)
+  const sufWs = suf.search(/[\s/]/)
+  if (sufWs !== -1) s = s - sufWs - 1
+
+  const rmEnd = removeText.length - s
+  const adEnd = addText.length - s
+  if (p >= rmEnd || p >= adEnd) return null // nothing meaningful left
+  return { remove: [p, rmEnd], add: [p, adEnd] }
+}
+
+/**
+ * Walk a file's lines; every run of consecutive removes followed by
+ * consecutive adds is a change block — pair them index-wise and compute
+ * per-line changed ranges for the inline highlight.
+ */
+function computeWordRanges(
+  lines: DiffLine[],
+): Map<number, [number, number]> {
+  const out = new Map<number, [number, number]>()
+  let i = 0
+  while (i < lines.length) {
+    if (lines[i].type !== 'remove') {
+      i++
+      continue
+    }
+    const rmStart = i
+    while (i < lines.length && lines[i].type === 'remove') i++
+    const rmEnd = i
+    while (i < lines.length && lines[i].type === 'add') i++
+    const adEnd = i
+    const pairs = Math.min(rmEnd - rmStart, adEnd - rmEnd)
+    for (let k = 0; k < pairs; k++) {
+      const r = wordRange(lines[rmStart + k].text, lines[rmEnd + k].text)
+      if (!r) continue
+      out.set(rmStart + k, r.remove)
+      out.set(rmEnd + k, r.add)
+    }
+  }
+  return out
+}
 
 /* ------------------------------------------------------------------ */
 /*  Syntax token colors (light/dark aware, warm palette)               */
@@ -44,9 +114,12 @@ const MARKER: Record<DiffLine['type'], string> = {
 const DiffRow = memo(function DiffRow({
   line,
   language,
+  changed,
 }: {
   line: DiffLine
   language: ReturnType<typeof detectLanguage>
+  /** [start, end) character range carrying the word-level change */
+  changed?: [number, number]
 }) {
   if (line.type === 'hunk') {
     // "@@ -69 +69 @@" — anything after the second @@ is the hunk's function
@@ -65,6 +138,70 @@ const DiffRow = memo(function DiffRow({
     )
   }
   const tokens = language ? tokenizeLine(line.text, language) : null
+  const marker =
+    changed && line.type !== 'context'
+      ? line.type === 'add'
+        ? 'bg-emerald-500/30 dark:bg-emerald-400/35 rounded-[2px]'
+        : 'bg-red-500/30 dark:bg-red-400/35 rounded-[2px]'
+      : null
+
+  /** render the syntax tokens, splitting the one that straddles the
+   *  changed range so the inline marker hugs the exact characters */
+  const renderTokens = () => {
+    if (!tokens) return line.text
+    if (!changed || !marker) {
+      return tokens.map((t, i) =>
+        t.type === 'plain' ? (
+          <Fragment key={i}>{t.text}</Fragment>
+        ) : (
+          <span key={i} className={TOKEN_STYLES[t.type]}>
+            {t.text}
+          </span>
+        ),
+      )
+    }
+    const [cs, ce] = changed
+    const out: ReactNode[] = []
+    let pos = 0
+    tokens.forEach((t, i) => {
+      const ts = pos
+      const te = pos + t.text.length
+      pos = te
+      if (te <= cs || ts >= ce) {
+        // entirely outside the changed range
+        out.push(
+          t.type === 'plain' ? (
+            <Fragment key={i}>{t.text}</Fragment>
+          ) : (
+            <span key={i} className={TOKEN_STYLES[t.type]}>
+              {t.text}
+            </span>
+          ),
+        )
+        return
+      }
+      // straddles (or inside) the range — split into up to 3 parts
+      const parts: Array<[number, number, boolean]> = [
+        [ts, Math.min(te, cs), false],
+        [Math.max(ts, cs), Math.min(te, ce), true],
+        [Math.max(ts, ce), te, false],
+      ]
+      parts.forEach(([s, e, hot], k) => {
+        if (e <= s) return
+        const text = t.text.slice(s - ts, e - ts)
+        out.push(
+          <span
+            key={`${i}-${k}`}
+            className={`${t.type === 'plain' ? '' : TOKEN_STYLES[t.type]} ${hot ? marker : ''}`}
+          >
+            {text}
+          </span>,
+        )
+      })
+    })
+    return out
+  }
+
   return (
     <div
       className={`flex px-2 font-mono text-[11.5px] leading-[17px] tabular-nums ${LINE_STYLES[line.type]}`}
@@ -86,19 +223,7 @@ const DiffRow = memo(function DiffRow({
       >
         {MARKER[line.type]}
       </span>
-      <span className="whitespace-pre-wrap break-all">
-        {tokens
-          ? tokens.map((t, i) =>
-              t.type === 'plain' ? (
-                <Fragment key={i}>{t.text}</Fragment>
-              ) : (
-                <span key={i} className={TOKEN_STYLES[t.type]}>
-                  {t.text}
-                </span>
-              ),
-            )
-          : line.text}
-      </span>
+      <span className="whitespace-pre-wrap break-all">{renderTokens()}</span>
     </div>
   )
 })
@@ -160,6 +285,7 @@ export interface DiffFileBlockProps {
 
 export function DiffFileBlock({ file, open, onToggle }: DiffFileBlockProps) {
   const language = useMemo(() => detectLanguage(file.path), [file.path])
+  const wordRanges = useMemo(() => computeWordRanges(file.lines), [file.lines])
   return (
     <div className="overflow-hidden rounded-lg border">
       {/* header */}
@@ -218,7 +344,9 @@ export function DiffFileBlock({ file, open, onToggle }: DiffFileBlockProps) {
               Renamed with no content changes.
             </p>
           ) : (
-            file.lines.map((line, i) => <DiffRow key={i} line={line} language={language} />)
+            file.lines.map((line, i) => (
+              <DiffRow key={i} line={line} language={language} changed={wordRanges.get(i)} />
+            ))
           )}
         </div>
       )}
