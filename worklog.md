@@ -197,3 +197,42 @@ Stage Summary:
 3. 已知小瑕疵：分支过滤切换时 graph 有 1-2s 空窗（refetch 期间 loading 覆盖）——可优化为保留旧图渐变
 4. 性能余量：6430 commits 下 framer-motion 入场动画期间滚动会触发新节点动画（1.7s 窗口内可接受）
 5. 键盘导航（上下键移动选中）与 graph 空白处点击取消选中可顺手加
+
+---
+Task ID: 3
+Agent: main (Z.ai Code, cron round 3)
+Task: Phase 3 —— Commit Detail：Changed Files 完整列表 + 按需 Diff 视图
+
+Work Log:
+- 前置 QA：清空 console 后全新会话验证 Phase 2 零错误（此前 NaN 是修复前的历史残留，确认不复现）
+- diff-parser.ts：统一 diff 解析器（文件块/hunk 头/旧新行号推进/add-remove-context 行），
+  兼容 added/deleted/binary/renamed（rename from/to）五种情况
+  → 合成 diff bun 脚本验证 5 文件场景全部正确；修复删除文件 path 误置为 /dev/null 的边界
+- diff-view.tsx：可折叠文件块（A/D/R/M 状态角标 + 目录/文件名分层 + 每文件 +/− 计数 +
+  hunk 分隔行 + 双行号槽 + +/- 行背景着色 + binary/纯 rename 空态）
+- changed-files.tsx：按需拉取 diff=1（每 commit 一次，staleTime 5min）→ 客户端解析 →
+  Expand all / Collapse all / 单文件点击展开；key={hash} 重挂载天然重置展开状态（规避
+  set-state-in-effect）；256KB 截断提示条；stats 回退渲染
+- commit-detail-panel.tsx：metadata 下方集成 ChangedFiles 区块
+- lint 修复 2 处：set-state-in-effect（改 keyed remount）、
+  preserve-manual-memoization（依赖改为提取后的 diffText 变量）
+- QA 全绿（agent-browser）：
+  → 单文件 commit（3b7e39fe package.json +1/−1）：hunk 头/双行号/+/− 行渲染正确
+  → 多文件 commit（4.22.3）：Expand all 后 2797 diff 行（579+/579−）流畅
+  → self 仓库 worklog.md +58 diff 真实渲染
+  → 控制台零错误、390px 无溢出、VLM 视觉审查（配色/行号/布局）通过
+- self 仓库真实 commit：4f72ebe（Claude trailer）
+
+Stage Summary:
+- Phase 3 全部验收达成：Commit Detail Panel / Changed Files / Additions/Deletions /
+  Author/Time/Parent/Branch / Diff 全部完成
+- 关键新文件：diff-parser.ts、diff-view.tsx、changed-files.tsx；修改：commit-detail-panel.tsx
+- 产品现状：graph 主视图 + 分支过滤 + 搜索定位 + 详情面板 + 完整 diff 浏览 = 已是一个
+  可日常使用的真实 Git 可视化工具
+
+未解决问题或风险，建议下一阶段（Phase 4 Timeline）优先事项:
+1. 【下一步主线】Activity Timeline：commit/ai/push 统一时间线（数据结构 Activity 已就绪，
+   aiAgent 已有真实数据），需要 timeline 组件（时间分组/类型过滤/点击跳转 graph）
+2. 顺手优化：分支过滤 refetch 空窗（保留旧图渐变）、graph 键盘上下导航、空白点击取消选中
+3. diff 语法高亮（当前纯色着色，已够用；可选 react-syntax-highlighter 或轻量 tokenizer）
+4. 详情面板在移动端占 max-h-[55vh]，diff 浏览时滚动空间偏小——可加全屏 Sheet 模式
