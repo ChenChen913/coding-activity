@@ -139,3 +139,61 @@ Stage Summary:
 4. /api/git/commit/[hash] 目录名含 [hash]，git add 时显示为 "commit/ash]/route.ts"（shell 转义显示问题，
    实际文件路径正确，已正常提交）
 5. express 仓库 clone 于 2026-10-04，静态快照；如需更新历史可定期 git fetch（暂不需要）
+
+---
+Task ID: 2
+Agent: main (Z.ai Code, cron round 2)
+Task: Phase 2 —— Commit Graph：自研 SVG 轨道布局 + 完整交互（zoom/pan/click/hover/search/filter）
+
+Work Log:
+- 交互 QA 前置确认 Phase 1 稳定（dev server 全 200）
+- 实测确认 slim API：6.43MB → 2.14MB（6430/6430 全量，无截断）
+- layout.ts：轨道布局算法（等待链延续/分支头占用空闲轨/merge 分叉新轨/多子收敛取首轨）
+  → 合成数据 bun 脚本验证 4 种拓扑（diamond 分叉+合并 / converge 双子同父 / 双 root / octopus 三方合并）全部正确
+  → 边着色规则：首父边=子轨色（merge 入主线时保持分支色），次父边=父轨色（分叉即分支色）
+  → 时间刻度 monthMarks（年/月变更行）
+- commit-graph.tsx（~950 行核心交互组件）：
+  → 几何在屏幕空间计算（scale 影响 rh/lw/nodeR/edgeW，文字恒定大小不糊）
+  → wheel 纵向平移 / ctrl+wheel 光标锚点缩放 / 拖拽平移（rAF 节流）/ 双指 pinch / 双击放大
+  → 视口裁剪：只渲染可见行 ±4 缓冲（6430 commits 每帧仅 ~20-30 节点 + 相交边过滤）
+  → rh < 15px 时列表进入"结构模式"（隐藏文字保留点击），年月左刻度栏
+  → tooltip 用 DOM ref 定位（零 re-render），选中脉冲环动画，framer-motion 入场
+    （节点 scale stagger + 边 pathLength 线条生长）
+  → 工具栏：缩放±/百分比/Fit/最新/最旧 + extra 插槽（分支过滤+搜索）
+  → Loading skeleton / Error+Retry / Empty 三态完整
+- commit-search.tsx：客户端全量搜索（hash 前缀 > subject 前缀 > 包含），30 条上限+计数提示，
+  点击结果选中并居中（rowRange 实测 1–22 → 1,310–1,336 ✓）
+- commit-detail-panel.tsx：message 正文/diff 统计行/复制 hash/authored+committed 全时+相对时间/
+  父提交可点击跳转/分支 chips/AI Trace 说明；md 侧栏 / 移动端下方面板
+- integrity-card.tsx：折叠式完整性卡（graph 为主角后保持诚实证明可见）
+- page.tsx 重组：header(实时时钟) → 仓库栏(全名+当前分支+5 项统计+AI commits) →
+  GRAPH CARD（分支过滤+搜索+graph+详情侧栏）→ AI 活动条 → 折叠完整性卡 → sticky footer
+- globals.css：pulse-ring 关键帧（SVG transform-box: fill-box）+ slim-scrollbar
+- 修复 3 个真实 bug（agent-browser 发现）：
+  1) animateTo 直接 setT(partial) 整体替换 state → scale 变 undefined → NaN%（改用合并式 setTransform）
+  2) ty 符号约定写反：clamp 区间应为 [0, totalH-viewH]（ty 为正=向下滚），拖拽方向同步翻转
+  3) 小仓库垂直居中公式（(totalH-viewH)/2 而非 Math.max(0,...)）
+- lint 修复：react-hooks/refs（render 期禁止写 ref → 统一 mirror effect）、
+  set-state-in-effect（全部 rAF/timeout 异步）、pointerUp 自引用（改为零依赖 window 监听）
+- QA 全绿（agent-browser）：点击行/节点 → 详情 ✓、父提交跳转 ✓、搜索定位居中 ✓、
+  Zoom 135%→211% ✓、跳最新(1–16)/最旧(6,415–6,430) ✓、拖动方向正确 ✓、滚轮 2000px 平移 ✓、
+  分支过滤 origin/5.0 → 5,979 ✓、DOM 零 NaN ✓、控制台无新错误 ✓、
+  390px 移动端无溢出 ✓、VLM 截图审查（桌面+移动）布局/配色/可读性好评 ✓
+- self 仓库真实 commit：f3dc012（带 Claude trailer）→ API 立即识别 ai: Claude（5 commits）
+- bun run lint 零错误
+
+Stage Summary:
+- Phase 2 全部验收达成：真实 Git Graph（非流程图）/ 节点/分支/merge 正确 / 可点击 /
+  可缩放可移动 / 6430 commits 流畅（裁剪渲染）/ 分支过滤真实生效 / 搜索可定位
+- 关键新文件：git-graph/layout.ts、commit-graph.tsx、commit-search.tsx、
+  commit-detail-panel.tsx、integrity-card.tsx；修改：page.tsx、commits API（slim）、
+  globals.css、types.ts（GraphCommit）
+- 本阶段二次发现：self 仓库历史正在积累（2 个 AI commit），产品核心叙事已成立
+
+未解决问题或风险，建议下一阶段（Phase 3 Commit Detail）优先事项:
+1. 【下一步主线】diff 视图：Commit Detail 增加 View Diff（API 已支持 diff=1 返回 256KB 截断的
+   unified diff），需要逐文件折叠列表 + 语法微高亮（可用 react-syntax-highlighter 已装或轻量自研）
+2. 详情面板补 Changed Files 完整列表（API stats.files 已返回，前端未展示）
+3. 已知小瑕疵：分支过滤切换时 graph 有 1-2s 空窗（refetch 期间 loading 覆盖）——可优化为保留旧图渐变
+4. 性能余量：6430 commits 下 framer-motion 入场动画期间滚动会触发新节点动画（1.7s 窗口内可接受）
+5. 键盘导航（上下键移动选中）与 graph 空白处点击取消选中可顺手加
