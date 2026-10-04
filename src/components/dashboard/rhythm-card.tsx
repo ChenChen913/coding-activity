@@ -124,7 +124,7 @@ export function RhythmCard({ commits, loading }: RhythmCardProps) {
   const peakValue = values[peakIndex]
 
   return (
-    <Card className="flex flex-col overflow-hidden p-0">
+    <Card className="flex flex-col overflow-hidden p-0 transition-[border-color,box-shadow] duration-200 hover:border-foreground/25 hover:shadow-sm">
       {/* header */}
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 pt-4 sm:px-5">
         <div className="flex items-center gap-2.5">
@@ -167,6 +167,16 @@ export function RhythmCard({ commits, loading }: RhythmCardProps) {
           <div className="space-y-3">
             <Skeleton className="h-16 w-full" />
             <Skeleton className="mx-auto h-2.5 w-2/3" />
+          </div>
+        ) : commits.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 py-8 text-center">
+            <Clock className="h-5 w-5 text-muted-foreground/50" />
+            <div className="text-[12px] font-medium text-muted-foreground">
+              No commits in view
+            </div>
+            <div className="text-[11px] text-muted-foreground/70">
+              clear the branch or author filter to see when work happens
+            </div>
           </div>
         ) : (
           <>

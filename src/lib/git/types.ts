@@ -120,6 +120,9 @@ export interface GitContributor {
   email: string
   commitCount: number
   aiAgent?: string
+  /** first / last commit dates (ISO) for this identity — real git dates */
+  firstCommitAt?: string
+  lastCommitAt?: string
 }
 
 export type ActivityType =

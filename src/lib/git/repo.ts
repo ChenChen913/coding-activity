@@ -92,21 +92,27 @@ export async function getRepoOverview(
 
       for (const commit of commits) {
         const key = commit.authorEmail || commit.author
+        const t = commit.committedAt
         const existing = contributorMap.get(key)
         if (existing) {
           existing.commitCount += 1
+          if (!existing.firstCommitAt || t < existing.firstCommitAt)
+            existing.firstCommitAt = t
+          if (!existing.lastCommitAt || t > existing.lastCommitAt)
+            existing.lastCommitAt = t
         } else {
           contributorMap.set(key, {
             name: commit.author,
             email: commit.authorEmail,
             commitCount: 1,
             aiAgent: commit.aiAgent,
+            firstCommitAt: t,
+            lastCommitAt: t,
           })
         }
         if (commit.isMerge) mergeCount += 1
         if (commit.aiAgent) aiCommitCount += 1
 
-        const t = commit.committedAt
         if (!firstCommitAt || t < firstCommitAt) firstCommitAt = t
         if (!lastCommitAt || t > lastCommitAt) lastCommitAt = t
       }

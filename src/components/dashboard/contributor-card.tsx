@@ -11,10 +11,16 @@
 
 import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { ChevronDown, Sparkles, Users } from 'lucide-react'
+import { format } from 'date-fns'
+import { ChevronDown, Clock, Mail, Sparkles, Users } from 'lucide-react'
 
 import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import type { GitContributor } from '@/lib/git/types'
 
 const TOP_N = 8
@@ -42,6 +48,24 @@ function initialsOf(name: string): string {
   const parts = name.trim().split(/\s+/)
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+}
+
+/** "Jun 2009 → Nov 2015 · 6.4y active" — from real git commit dates */
+function activityRange(c: GitContributor): string | null {
+  if (!c.firstCommitAt || !c.lastCommitAt) return null
+  const first = new Date(c.firstCommitAt)
+  const last = new Date(c.lastCommitAt)
+  if (Number.isNaN(first.getTime()) || Number.isNaN(last.getTime())) return null
+  const months =
+    (last.getFullYear() - first.getFullYear()) * 12 +
+    (last.getMonth() - first.getMonth())
+  const span =
+    months < 1
+      ? 'same month'
+      : months < 18
+        ? `${months} mo`
+        : `${(months / 12).toFixed(1)}y`
+  return `${format(first, 'MMM yyyy')} → ${format(last, 'MMM yyyy')} · ${span}`
 }
 
 export interface ContributorCardProps {
@@ -77,7 +101,7 @@ export function ContributorCard({
   )
 
   return (
-    <Card className={`flex flex-col overflow-hidden p-0 ${className ?? ''}`}>
+    <Card className={`flex flex-col overflow-hidden p-0 transition-[border-color,box-shadow] duration-200 hover:border-foreground/25 hover:shadow-sm ${className ?? ''}`}>
       {/* header */}
       <div className="flex items-center justify-between gap-3 px-4 pt-4 sm:px-5">
         <div className="flex items-center gap-2.5">
@@ -118,6 +142,16 @@ export function ContributorCard({
               </div>
             ))}
           </div>
+        ) : contributors.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
+            <Users className="h-5 w-5 text-muted-foreground/50" />
+            <div className="text-[12px] font-medium text-muted-foreground">
+              No contributors match the current filters
+            </div>
+            <div className="text-[11px] text-muted-foreground/70">
+              clear the branch or author filter to see everyone
+            </div>
+          </div>
         ) : (
           <>
             <ul
@@ -131,19 +165,21 @@ export function ContributorCard({
                 const key = c.email || c.name
                 const active = activeAuthorKey === key
                 const pct = Math.max(2, Math.round((c.commitCount / maxCount) * 100))
+                const range = activityRange(c)
                 return (
                   <li key={key}>
-                    <button
-                      type="button"
-                      aria-pressed={active}
-                      title={`${c.name} · ${c.commitCount.toLocaleString()} commits${c.aiAgent ? ` · AI-assisted (${c.aiAgent})` : ''}`}
-                      onClick={() => onFilterAuthor(c.name, key)}
-                      className={`group flex w-full min-w-0 cursor-pointer items-center gap-3 rounded-lg px-2 py-1.5 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/60 ${
-                        active
-                          ? 'bg-accent ring-1 ring-foreground/15'
-                          : 'hover:bg-muted/60'
-                      }`}
-                    >
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          aria-pressed={active}
+                          onClick={() => onFilterAuthor(c.name, key)}
+                          className={`group flex w-full min-w-0 cursor-pointer items-center gap-3 rounded-lg px-2 py-1.5 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/60 ${
+                            active
+                              ? 'bg-accent ring-1 ring-foreground/15'
+                              : 'hover:bg-muted/60'
+                          }`}
+                        >
                       <span className="w-4 shrink-0 text-right font-mono text-[10px] tabular-nums text-muted-foreground/70">
                         {i + 1}
                       </span>
@@ -167,7 +203,7 @@ export function ContributorCard({
                           </span>
                           {c.aiAgent && (
                             <span
-                              className="inline-flex shrink-0 items-center rounded-full border border-amber-200 bg-amber-50 px-1 py-px text-[9px] font-medium text-amber-700"
+                              className="inline-flex shrink-0 items-center rounded-full border border-amber-200 bg-amber-50 px-1 py-px text-[9px] font-medium text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-300"
                               title={`AI-assisted commits detected (${c.aiAgent})`}
                             >
                               <Sparkles className="mr-0.5 h-2.5 w-2.5" />
@@ -191,7 +227,45 @@ export function ContributorCard({
                       <span className="w-12 shrink-0 text-right font-mono text-[11px] tabular-nums text-muted-foreground">
                         {c.commitCount.toLocaleString()}
                       </span>
-                    </button>
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent
+                        side="left"
+                        align="center"
+                        sideOffset={8}
+                        className="max-w-[260px] rounded-lg border bg-popover px-3 py-2.5 text-popover-foreground shadow-md"
+                      >
+                        <div className="text-[12px] font-semibold leading-tight">
+                          {c.name}
+                        </div>
+                        {c.email && (
+                          <div className="mt-1 flex items-center gap-1.5 font-mono text-[10px] text-muted-foreground">
+                            <Mail className="h-3 w-3 shrink-0" />
+                            <span className="truncate">{c.email}</span>
+                          </div>
+                        )}
+                        <div className="mt-1.5 flex items-center gap-3 text-[10px] tabular-nums text-muted-foreground">
+                          <span className="font-medium text-foreground">
+                            {c.commitCount.toLocaleString()} commits
+                          </span>
+                          {range && (
+                            <span className="flex items-center gap-1">
+                              <Clock className="h-3 w-3 shrink-0" />
+                              {range}
+                            </span>
+                          )}
+                        </div>
+                        {c.aiAgent && (
+                          <div className="mt-1.5 flex items-center gap-1 border-t pt-1.5 text-[10px] text-amber-600 dark:text-amber-400">
+                            <Sparkles className="h-3 w-3 shrink-0" />
+                            AI-assisted commits detected ({c.aiAgent})
+                          </div>
+                        )}
+                        <div className="mt-1.5 text-[9px] text-muted-foreground/70">
+                          click to focus graph + timeline on this author
+                        </div>
+                      </TooltipContent>
+                    </Tooltip>
                   </li>
                 )
               })}

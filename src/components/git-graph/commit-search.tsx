@@ -29,6 +29,7 @@ export function CommitSearch({ commits, onSelect }: CommitSearchProps) {
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   const results = useMemo<RankedResult[]>(() => {
     const q = query.trim().toLowerCase()
@@ -76,6 +77,20 @@ export function CommitSearch({ commits, onSelect }: CommitSearchProps) {
     }
   }, [open])
 
+  // global "/" focuses the search box (unless already typing somewhere)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return
+      const el = document.activeElement as HTMLElement | null
+      const tag = el?.tagName?.toLowerCase()
+      if (tag === 'input' || tag === 'textarea' || el?.isContentEditable) return
+      e.preventDefault()
+      inputRef.current?.focus()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   const choose = (hash: string) => {
     onSelect(hash)
     setOpen(false)
@@ -87,6 +102,7 @@ export function CommitSearch({ commits, onSelect }: CommitSearchProps) {
       <div className="relative">
         <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
         <Input
+          ref={inputRef}
           value={query}
           onChange={(e) => {
             setQuery(e.target.value)
@@ -97,6 +113,12 @@ export function CommitSearch({ commits, onSelect }: CommitSearchProps) {
           aria-label="Search commits by message, author or hash"
           className="h-8 pl-8 pr-7 text-[13px]"
         />
+        {/* "/" focus hint while empty (replaced by the clear button on type) */}
+        {!query && (
+          <kbd className="pointer-events-none absolute right-2 top-1/2 hidden -translate-y-1/2 select-none rounded border bg-muted px-1 font-mono text-[10px] leading-4 text-muted-foreground/70 sm:block">
+            /
+          </kbd>
+        )}
         {query && (
           <button
             type="button"

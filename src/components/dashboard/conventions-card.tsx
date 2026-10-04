@@ -80,7 +80,7 @@ export function ConventionsCard({ commits, loading }: ConventionsCardProps) {
   }, [commits])
 
   return (
-    <Card className="flex flex-col overflow-hidden p-0">
+    <Card className="flex flex-col overflow-hidden p-0 transition-[border-color,box-shadow] duration-200 hover:border-foreground/25 hover:shadow-sm">
       {/* header */}
       <div className="flex items-center justify-between gap-3 px-4 pt-4 sm:px-5">
         <div className="flex items-center gap-2.5">
@@ -96,6 +96,11 @@ export function ConventionsCard({ commits, loading }: ConventionsCardProps) {
         </div>
         {loading ? (
           <Skeleton className="h-5 w-20" />
+        ) : commits.length === 0 ? (
+          <div className="text-right text-[11px] tabular-nums leading-tight text-muted-foreground">
+            <div className="font-semibold text-foreground">—</div>
+            <div>no data</div>
+          </div>
         ) : (
           <div className="text-right text-[11px] tabular-nums leading-tight text-muted-foreground">
             <div className="font-semibold text-foreground">
@@ -120,6 +125,16 @@ export function ConventionsCard({ commits, loading }: ConventionsCardProps) {
                 <Skeleton className="h-3 w-9 shrink-0" />
               </div>
             ))}
+          </div>
+        ) : commits.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 py-8 text-center">
+            <Tag className="h-5 w-5 text-muted-foreground/50" />
+            <div className="text-[12px] font-medium text-muted-foreground">
+              No commit subjects in view
+            </div>
+            <div className="text-[11px] text-muted-foreground/70">
+              clear the branch or author filter to parse conventions again
+            </div>
           </div>
         ) : (
           <ul className="space-y-[7px]">
@@ -166,9 +181,11 @@ export function ConventionsCard({ commits, loading }: ConventionsCardProps) {
           <span className="font-mono font-semibold tabular-nums text-foreground">
             {analysis.ai.toLocaleString()}
           </span>
-          <span className="tabular-nums">
-            ({((analysis.ai / analysis.total) * 100).toFixed(1)}%)
-          </span>
+          {commits.length > 0 && (
+            <span className="tabular-nums">
+              ({((analysis.ai / analysis.total) * 100).toFixed(1)}%)
+            </span>
+          )}
         </span>
         <span className="text-muted-foreground/70">
           detected from real trailers

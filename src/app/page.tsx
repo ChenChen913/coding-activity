@@ -15,6 +15,7 @@
 import { useRef, useState } from 'react'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { format } from 'date-fns'
+import { motion } from 'framer-motion'
 import {
   Activity as ActivityIcon,
   AlertTriangle,
@@ -48,6 +49,8 @@ import { RhythmCard } from '@/components/dashboard/rhythm-card'
 import { ConventionsCard } from '@/components/dashboard/conventions-card'
 import { IntegrityCard } from '@/components/integrity/integrity-card'
 import { ThemeToggle } from '@/components/theme-toggle'
+import { Reveal, staggerContainer, staggerItem } from '@/components/reveal'
+import { ScrollTop } from '@/components/scroll-top'
 import { useClock } from '@/hooks/use-clock'
 import type {
   CommitsResponse,
@@ -168,12 +171,14 @@ export default function Home() {
       <header className="sticky top-0 z-20 border-b bg-background/80 backdrop-blur-md">
         <div className="mx-auto flex max-w-[1200px] items-center justify-between gap-4 px-4 py-3 sm:px-6">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg border bg-card">
-              <ActivityIcon className="h-4 w-4" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg border bg-gradient-to-br from-emerald-500/15 to-teal-500/10 dark:from-emerald-400/20 dark:to-teal-400/10">
+              <ActivityIcon className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
             </div>
             <div>
               <div className="text-sm font-semibold leading-tight">
-                AI Coding Activity
+                <span className="bg-gradient-to-r from-emerald-700 via-teal-600 to-emerald-600 bg-clip-text text-transparent dark:from-emerald-400 dark:via-teal-300 dark:to-emerald-400">
+                  AI Coding Activity
+                </span>
               </div>
               <div className="text-[11px] text-muted-foreground">
                 Git history, watching itself being written
@@ -200,7 +205,13 @@ export default function Home() {
       {/* ---------------- body ---------------- */}
       <main className="mx-auto w-full max-w-[1200px] flex-1 space-y-5 px-4 py-6 sm:px-6">
         {/* repository bar */}
-        <section aria-label="Repository" className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <motion.section
+          aria-label="Repository"
+          className="flex flex-wrap items-center gap-x-4 gap-y-2"
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+        >
           {overview ? (
             <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
               <span className="flex items-center gap-2">
@@ -281,7 +292,7 @@ export default function Home() {
               Reload
             </Button>
           </div>
-        </section>
+        </motion.section>
 
         {/* error */}
         {loadError && !overviewQuery.isFetching && (
@@ -401,50 +412,68 @@ export default function Home() {
         </div>
 
         {/* ---------------- INSIGHTS (dashboard) ---------------- */}
-        <section
+        <motion.section
           aria-label="Repository insights"
           className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3"
+          variants={staggerContainer}
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true, margin: '-40px 0px' }}
         >
-          <ContributorCard
+          <motion.div
+            variants={staggerItem}
             className="md:col-span-2 xl:col-span-1"
-            contributors={overview?.contributors ?? []}
-            loading={overviewQuery.isLoading}
-            activeAuthorKey={authorFilter?.key ?? null}
-            onFilterAuthor={focusAuthor}
-          />
-          <RhythmCard
-            commits={commits}
-            loading={commitsQuery.isLoading || !commitsMatchRepo}
-          />
-          <ConventionsCard
-            commits={commits}
-            loading={commitsQuery.isLoading || !commitsMatchRepo}
-          />
-        </section>
+          >
+            <ContributorCard
+              contributors={overview?.contributors ?? []}
+              loading={overviewQuery.isLoading}
+              activeAuthorKey={authorFilter?.key ?? null}
+              onFilterAuthor={focusAuthor}
+              className="h-full"
+            />
+          </motion.div>
+          <motion.div variants={staggerItem}>
+            <RhythmCard
+              commits={commits}
+              loading={commitsQuery.isLoading || !commitsMatchRepo}
+            />
+          </motion.div>
+          <motion.div variants={staggerItem}>
+            <ConventionsCard
+              commits={commits}
+              loading={commitsQuery.isLoading || !commitsMatchRepo}
+            />
+          </motion.div>
+        </motion.section>
 
         {/* ---------------- ACTIVITY TIMELINE ---------------- */}
-        <ActivityTimeline
-          key={repoId}
-          commits={commits}
-          loading={commitsQuery.isLoading || !commitsMatchRepo}
-          selectedHash={selectedHash}
-          onSelect={selectAndReveal}
-        />
+        <Reveal>
+          <ActivityTimeline
+            key={repoId}
+            commits={commits}
+            loading={commitsQuery.isLoading || !commitsMatchRepo}
+            selectedHash={selectedHash}
+            onSelect={selectAndReveal}
+          />
+        </Reveal>
 
         {/* ---------------- integrity ---------------- */}
-        <IntegrityCard
-          overview={overview}
-          commits={commits}
-          fetchMs={commitsMatchRepo ? commitsData?.fetchMs : undefined}
-          loading={commitsQuery.isLoading || !commitsMatchRepo || overviewQuery.isLoading}
-          clientFiltered={branchFilter !== 'all' || authorFilter !== null}
-        />
+        <Reveal delay={0.08}>
+          <IntegrityCard
+            overview={overview}
+            commits={commits}
+            fetchMs={commitsMatchRepo ? commitsData?.fetchMs : undefined}
+            loading={commitsQuery.isLoading || !commitsMatchRepo || overviewQuery.isLoading}
+            clientFiltered={branchFilter !== 'all' || authorFilter !== null}
+          />
+        </Reveal>
       </main>
 
       {/* ---------------- footer ---------------- */}
       <footer className="mt-auto border-t">
         <div className="mx-auto flex max-w-[1200px] flex-wrap items-center justify-between gap-2 px-4 py-4 text-xs text-muted-foreground sm:px-6">
-          <span>
+          <span className="inline-flex items-center gap-1.5">
+            <GitBranch className="h-3 w-3 shrink-0 text-emerald-600 dark:text-emerald-400" />
             Git is the single source of truth — no fabricated data, no hidden
             commits.
           </span>
@@ -455,6 +484,9 @@ export default function Home() {
           </span>
         </div>
       </footer>
+
+      {/* floating back-to-top */}
+      <ScrollTop />
     </div>
   )
 }
