@@ -375,3 +375,60 @@ Stage Summary:
 4. 贡献者头像 hover 可显示 email + commits 时间范围 tooltip（增强但不紧急）
 5. push/CI/deploy 活动仍待 Phase 7 GitHub 集成补数据源
 6. self 仓库 10 commits / 5 AI —— "工具开发自己"叙事素材持续积累
+
+---
+Task ID: 6
+Agent: main (Z.ai Code, cron round 6)
+Task: Phase 6 —— Visual Polish：暗色审计收尾 + 进场编排 + Insights 空态 + 交互细节（快捷键/ScrollTop/Tooltip）
+
+Work Log:
+- 前置回归 QA（agent-browser）：Phase 5 无回归（Insights 三卡 / author 过滤 / 控制台零错误）
+- 发现上轮 context 已落地 Phase 6-a 基础设施（本 session 验证补记）：
+  next-themes ThemeProvider（attribute=class）+ theme-toggle.tsx（light→dark→system 循环）
+  + layout suppressHydrationWarning + globals.css 完整 .dark 变量块
+- 主题循环实测：System(dark)→Light→Dark→System 三态切换 + localStorage 持久化 + 刷新保持 ✓
+- 暗色审计（grep + DOM 计算样式 + VLM 双截图）：
+  → 修复 contributor-card AI 徽章（border-amber-200 bg-amber-50 → dark:amber-500/15 半透明琥珀）
+  → graph 分支 badge 的 text-white/bg-white 确认安全（深色轨道底上双模式一致）
+  → VLM 审查暗色桌面（Insights/graph/detail）/移动端均 NO BUGS
+- Phase 6-c 空态自适应（数据诚实性）：
+  → rhythm/conventions/contributor 三卡在 commits=[] 时显示真实空态
+    （原先会渲染 "peak 00:00 · 0 commits" 和 0% 空条的误导性图表）
+  → conventions header 空态显示 "— no data" 替代误导性 "0% conventional"
+  → 触发组合实测：origin/5.0 × dependabot[bot]（API 差集找到的作者）✓
+- 视觉细节增强（样式越做越细节）：
+  → reveal.tsx：whileInView 进场编排（insights 三卡 stagger 0.09s / timeline / integrity）
+  → header：渐变标题（emerald→teal，dark 变体）+ 渐变 logo tile
+  → 四卡统一 hover 层次（border-foreground/25 + shadow-sm，200ms transition）
+  → footer：GitBranch icon 点缀
+- 交互增强（功能越做越多）：
+  → scroll-top.tsx：浮动回顶按钮（1.3 屏出现 / AnimatePresence 缩放 / 安全区适配）
+  → 贡献者行 tooltip：email + commit 数 + 真实活跃区间（"Jun 2009 → Feb 2014 · 4.7y"）
+    —— 数据层 GitContributor 新增 firstCommitAt/lastCommitAt（git 聚合，非估算）
+  → commit-search：全局 "/" 聚焦快捷键（输入上下文守卫）+ 空 query 时 kbd 提示徽章
+  → providers：MotionConfig reducedMotion="user"（尊重系统减弱动效偏好，无障碍）
+- QA 全绿（agent-browser）：
+  → "/" 快捷键聚焦 ✓ / kbd 提示 ✓ / tooltip 内容（TJ: tj@vision-media.ca 4,071 commits
+    Jun 2009 → Feb 2014 · 4.7y）✓ / ScrollTop 出现+点击回顶（1305→0）✓
+  → 空态：No commits in view / No commit subjects in view + VLM NO BUGS ✓
+  → 回归：graph 节点点击→面板 ✓ / ArrowDown 键盘导航 ✓ / timeline 点击→滚动联动（scrollY=59）✓
+  → 亮色 VLM（渐变标题/卡片）：NO BUGS ✓ / 390px 无溢出 ✓ / 控制台全程零错误 ✓
+- bun run lint 零错误
+- self 仓库真实 commit：677fede（带 Claude trailer）→ API 立即识别（14 commits / 6 AI）
+
+Stage Summary:
+- Phase 6 主体完成：暗色模式全线可用（VLM 双模式审查通过）+ 进场编排 + 空态诚实化
+  + 4 项交互增强（ScrollTop/Tooltip/快捷键/reducedMotion）
+- 关键新文件：reveal.tsx、scroll-top.tsx；修改 11 文件（+351/−58）
+- 数据诚实性再进一步：空过滤组合不再渲染误导性 0 值图表；
+  贡献者 tooltip 的时间范围来自真实 git 聚合
+
+未解决问题或风险，建议下一阶段（Phase 7 GitHub 集成或 Phase 6 收尾）优先事项:
+1. 【下一步主线】Phase 7 GitHub 集成：remote 解析已有基础（repo.remote.githubOwner/Repo），
+   可加 Open on GitHub 链接、commit SHA 链接到 github.com/expressjs/express/commit/<hash>、
+   push/CI/deploy 活动类型数据源（GitHub API events）
+2. 移动端 detail panel 仍是 max-h-[55vh] 面板——diff 浏览滚动空间小，
+   可升级为全屏 Sheet（vaul 已装）
+3. timeline 虚拟滚动（Load more 累积 DOM 风险仍在，当前 80/页可控）
+4. diff 语法高亮（当前 +/- 行背景着色，已够用；可上轻量 tokenizer）
+5. self 仓库 14 commits / 6 AI —— "工具开发自己"叙事素材持续积累
