@@ -42,6 +42,10 @@ import type {
 /* ------------------------------------------------------------------ */
 
 const PAGE_SIZE = 80
+/** hard cap on mounted rows — beyond it the window scrolls instead of
+ *  accumulating DOM forever (chat-log windowing; every activity stays
+ *  reachable in both directions, nothing is hidden) */
+const MAX_WINDOW = 640
 
 type TypeFilter = 'all' | 'commits' | 'merges' | 'releases' | 'ai'
 
@@ -172,7 +176,12 @@ export function ActivityTimeline({
 }: ActivityTimelineProps) {
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
   const [yearFilter, setYearFilter] = useState<number | null>(null)
-  const [extra, setExtra] = useState(0)
+  /** windowing — a chat-log style sliding window over the filtered list:
+   *  windowSize grows to the cap, then slides forward on "load more" and
+   *  back on "load earlier". Every activity stays reachable in both
+   *  directions; nothing is ever hidden. */
+  const [windowStart, setWindowStart] = useState(0)
+  const [windowSize, setWindowSize] = useState(PAGE_SIZE)
 
   /* ---- hash set of the current view (branch/author filtered) ---- */
   const viewHashes = useMemo(
@@ -244,10 +253,35 @@ export function ActivityTimeline({
     })
   }, [activities, typeFilter, yearFilter])
 
-  const visibleCount = Math.min(PAGE_SIZE + extra, filtered.length)
+  const visibleCount = Math.min(windowSize, filtered.length - windowStart)
+
+  /** bottom "load more" — grow the window to the cap, then slide forward
+   *  (top rows unmount, always recoverable via load earlier) */
+  const loadMore = () => {
+    if (windowSize < MAX_WINDOW) {
+      setWindowSize(Math.min(windowSize + PAGE_SIZE, MAX_WINDOW))
+    } else {
+      setWindowStart(
+        Math.min(
+          windowStart + PAGE_SIZE,
+          Math.max(0, filtered.length - windowSize),
+        ),
+      )
+    }
+  }
+
+  /** top "load earlier" — slide the window back up, same size */
+  const loadEarlier = () => {
+    setWindowStart(Math.max(0, windowStart - PAGE_SIZE))
+  }
+
+  const resetWindow = () => {
+    setWindowStart(0)
+    setWindowSize(PAGE_SIZE)
+  }
 
   const groups = useMemo(() => {
-    const slice = filtered.slice(0, visibleCount)
+    const slice = filtered.slice(windowStart, windowStart + visibleCount)
     const out: ActivityGroup[] = []
     let current: ActivityGroup | null = null
     for (const a of slice) {
@@ -265,7 +299,7 @@ export function ActivityTimeline({
       current.activities.push(a)
     }
     return out
-  }, [filtered, visibleCount])
+  }, [filtered, visibleCount, windowStart])
 
   const now = useMemo(() => Date.now(), [activities])
 
@@ -374,7 +408,7 @@ export function ActivityTimeline({
                   aria-pressed={active}
                   onClick={() => {
                     setYearFilter(active ? null : b.year)
-                    setExtra(0)
+                    resetWindow()
                   }}
                   className="group relative flex min-w-[16px] flex-1 shrink-0 cursor-pointer flex-col items-center justify-end gap-[3px] outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
                 >
@@ -424,7 +458,7 @@ export function ActivityTimeline({
                 className="inline-flex items-center rounded-full border px-2 py-px text-[10px] font-medium hover:bg-muted"
                 onClick={() => {
                   setYearFilter(null)
-                  setExtra(0)
+                  resetWindow()
                 }}
               >
                 clear year filter
@@ -446,7 +480,7 @@ export function ActivityTimeline({
                 aria-pressed={active}
                 onClick={() => {
                   setTypeFilter(f.key)
-                  setExtra(0)
+                  resetWindow()
                 }}
                 className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
                   active
@@ -470,7 +504,8 @@ export function ActivityTimeline({
             )
           })}
           <span className="ml-auto text-[11px] tabular-nums text-muted-foreground">
-            showing {visibleCount.toLocaleString()} of {filtered.length.toLocaleString()}
+            showing {filtered.length === 0 ? 0 : (windowStart + 1).toLocaleString()}–
+            {(windowStart + visibleCount).toLocaleString()} of {filtered.length.toLocaleString()}
           </span>
         </div>
       )}
@@ -587,6 +622,18 @@ export function ActivityTimeline({
           </div>
         ) : (
           <div className="max-h-[460px] overflow-y-auto slim-scrollbar">
+            {/* window top — recover rows trimmed by the windowing cap */}
+            {windowStart > 0 && (
+              <div className="flex items-center justify-center gap-2 border-b px-4 py-3">
+                <Button variant="outline" size="sm" onClick={loadEarlier}>
+                  <Loader2 className="mr-1.5 h-3 w-3" />
+                  Load {Math.min(PAGE_SIZE, windowStart).toLocaleString()} earlier
+                  <span className="ml-1 text-muted-foreground">
+                    ({windowStart.toLocaleString()} above)
+                  </span>
+                </Button>
+              </div>
+            )}
             {groups.map((g) => (
               <section key={g.key} aria-label={g.label}>
                 {/* month header */}
@@ -707,17 +754,20 @@ export function ActivityTimeline({
             ))}
 
             {/* load more */}
-            {visibleCount < filtered.length && (
+            {windowStart + visibleCount < filtered.length && (
               <div className="flex items-center justify-center gap-2 border-t px-4 py-3">
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setExtra((e) => e + PAGE_SIZE)}
+                  onClick={loadMore}
                 >
                   <Loader2 className="mr-1.5 h-3 w-3 rotate-180" />
-                  Load {Math.min(PAGE_SIZE, filtered.length - visibleCount).toLocaleString()} more
+                  Load {Math.min(
+                    PAGE_SIZE,
+                    filtered.length - windowStart - visibleCount,
+                  ).toLocaleString()}{' '}more
                   <span className="ml-1 text-muted-foreground">
-                    ({(filtered.length - visibleCount).toLocaleString()} left)
+                    ({(filtered.length - windowStart - visibleCount).toLocaleString()} left)
                   </span>
                 </Button>
               </div>

@@ -27,6 +27,7 @@ import {
   githubTreeUrl,
 } from '@/lib/github'
 import { ChangedFiles } from './changed-files'
+import { Drawer } from 'vaul'
 
 export interface CommitDetailPanelProps {
   repoId: string
@@ -83,8 +84,6 @@ export function CommitDetailPanel({
     enabled: Boolean(hash),
   })
 
-  if (!hash) return null
-
   const d = detailQ.data
   const c = d?.commit
 
@@ -99,15 +98,9 @@ export function CommitDetailPanel({
     }
   }
 
-  return (
-    <motion.aside
-      role="complementary"
-      aria-label="Commit details"
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.22, ease: 'easeOut' }}
-      className="flex max-h-[55vh] w-full shrink-0 flex-col border-t md:max-h-none md:w-[340px] md:border-l md:border-t-0 xl:w-[380px]"
-    >
+  /* shared panel content — rendered once, mounted in two shells */
+  const panelContent = (
+    <>
       {/* header */}
       <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
         <div className="flex min-w-0 items-center gap-1.5">
@@ -210,7 +203,12 @@ export function CommitDetailPanel({
               <MetaRow label="Hash">
                 <div className="flex items-center gap-1.5">
                   <code className="font-mono text-xs">{c.shortHash}</code>
-                  <span className="font-mono text-[10px] text-muted-foreground">
+                  {/* full tail only where there is room (mobile keeps the
+                      short hash + copy button — full hash via title/copy) */}
+                  <span
+                    className="hidden font-mono text-[10px] text-muted-foreground md:inline"
+                    title={c.hash}
+                  >
                     {c.hash.slice(7)}
                   </span>
                   <Button
@@ -368,6 +366,53 @@ export function CommitDetailPanel({
           </div>
         )}
       </div>
-    </motion.aside>
+    </>
+  )
+
+  return (
+    <>
+      {/* ---- desktop sidebar (md+) ---- */}
+      {hash && (
+        <motion.aside
+          role="complementary"
+          aria-label="Commit details"
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.22, ease: 'easeOut' }}
+          className="hidden w-[340px] shrink-0 flex-col border-l md:flex xl:w-[380px]"
+        >
+          {panelContent}
+        </motion.aside>
+      )}
+
+      {/* ---- mobile: full-height sheet (drag to dismiss) ---- */}
+      <Drawer.Root
+        open={Boolean(hash)}
+        onOpenChange={(open) => {
+          if (!open) onClose()
+        }}
+      >
+        <Drawer.Portal>
+          <Drawer.Overlay className="fixed inset-0 z-40 bg-black/50" />
+          <Drawer.Content
+            className="fixed inset-x-0 bottom-0 z-50 flex h-[92dvh] max-h-[92dvh] flex-col rounded-t-2xl border-t-2 border-border bg-background pb-[env(safe-area-inset-bottom)] outline-none"
+            aria-describedby={undefined}
+          >
+            {/* drag handle */}
+            <div className="flex shrink-0 justify-center pt-2.5 pb-1">
+              <div className="h-1 w-10 rounded-full bg-muted-foreground/30" aria-hidden />
+            </div>
+            <Drawer.Title className="sr-only">Commit details</Drawer.Title>
+            <div
+              role="complementary"
+              aria-label="Commit details"
+              className="flex min-h-0 flex-1 flex-col"
+            >
+              {panelContent}
+            </div>
+          </Drawer.Content>
+        </Drawer.Portal>
+      </Drawer.Root>
+    </>
   )
 }

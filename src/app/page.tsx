@@ -50,6 +50,7 @@ import { ActivityTimeline } from '@/components/timeline/activity-timeline'
 import { ContributorCard } from '@/components/dashboard/contributor-card'
 import { RhythmCard } from '@/components/dashboard/rhythm-card'
 import { ConventionsCard } from '@/components/dashboard/conventions-card'
+import { ReleaseTimelineCard } from '@/components/dashboard/release-timeline-card'
 import { IntegrityCard } from '@/components/integrity/integrity-card'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { Reveal, staggerContainer, staggerItem } from '@/components/reveal'
@@ -500,6 +501,22 @@ export default function Home() {
             />
           </motion.div>
         </motion.section>
+
+        {/* ---------------- RELEASE TIMELINE (wide) ---------------- */}
+        <motion.div
+          variants={staggerItem}
+          initial={{ opacity: 0, y: 14 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: '-40px 0px' }}
+          transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+        >
+          <ReleaseTimelineCard
+            tags={tags}
+            loading={tagsQuery.isLoading}
+            selectedHash={selectedHash}
+            onSelect={selectAndReveal}
+          />
+        </motion.div>
 
         {/* ---------------- ACTIVITY TIMELINE ---------------- */}
         <Reveal>
