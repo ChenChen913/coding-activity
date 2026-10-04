@@ -78,3 +78,64 @@ Stage Summary（关键架构决策）:
 - 克隆的开源仓库需确认分支数 ≥ 5 且含 merge commits（Phase 1 实测）
 - 大仓库（5000+ commits）JSON 体积 ~1.5MB，前端需做虚拟滚动（Phase 2 处理，传输层可 gzip）
 - clone 下来的仓库只有 remote 分支（无本地分支），分支解析需支持 refs/remotes
+
+---
+Task ID: 1
+Agent: main (Z.ai Code, cron round 1)
+Task: Phase 1 —— Git 数据层：完整、准确获取 Git Repository 数据（含 QA 验收）
+
+Work Log:
+- 克隆演示仓库：expressjs/express → repos/demo（--no-checkout 全量克隆，12MB）
+  实测：6430 commits / 536 merges / 19 分支（1 local + 18 remote）/ 412 contributors / 时间跨度 2009→2026
+  （候选 swr 只有 1 个 merge 被；express 一个仓库同时覆盖"丰富演示"+"5000+ 压测"两个需求）
+- .gitignore 增加 /repos/（演示仓库是独立 git 仓库，不进 self 历史）
+- 实测并确认 git 解析行为：numstat rename 格式 `old => new`、name-status `R100\told\tnew`、
+  binary `-\t-`、根提交 diff vs empty tree (4b825dc...)、merge diff vs first parent
+- 实现 src/lib/git/ 数据层（10 个文件）：
+  - types.ts：GitCommit/GitBranch/GitRepoInfo/Activity/GitIntegrity/... 完整数据模型
+  - exec.ts：execFile 封装（无 shell、128MB buffer、超时、GitError）
+  - cache.ts：模块级内存缓存 + 仓库签名失效（HEAD + refs 摘要，新 commit/分支变动自动失效）
+  - repos.ts：仓库注册表（demo + self），可用性探测，RepoNotGitError
+  - branches.ts：for-each-ref 解析（local + remote-tracking，跳过 origin/HEAD 符号引用）+ 每分支 rev-list 包含关系
+  - commits.ts：单次 git log --all 全量拉取（\x1f 字段/\x1e 记录分隔，body 多行安全）；
+    分支归属附加；getCommitStats（numstat+name-status 双命令对齐，rename/二进制/root 处理）；
+    getCommitDiff（统一 diff，256KB 截断保护）
+  - ai.ts：AI agent 真实 trailer 检测（Claude Code/Claude/Copilot/Cursor/Gemini/Codex/Aider），绝不伪造
+  - repo.ts：getRepoOverview（远程 GitHub URL 解析、贡献者统计、完整性报告）、缓存封装
+  - index.ts：barrel
+- API routes ×4（全部 nodejs runtime + force-dynamic，统一错误结构 404/422/500）：
+  - GET /api/git/repos：注册表 + 概要（含 integrityMatch）
+  - GET /api/git/repo?repo=：完整 overview（repo/branches/contributors/integrity）
+  - GET /api/git/commits?repo=&q=&author=&branch=&limit=&offset=：默认全量返回（不截断），过滤显式报告 total/returned/filtered
+  - GET /api/git/commit/[hash]?repo=&diff=1：详情 + 文件级统计 + 可选 diff（支持 hash 前缀唯一匹配，多匹配返回 300）
+- 前端（Phase 1 验收面板，非最终设计）：
+  - providers.tsx：TanStack QueryClientProvider（staleTime 30s）
+  - layout.tsx：换 metadata、挂 Providers
+  - use-clock.ts：rAF+interval 实时时钟（hydration 安全，通过 react-hooks/set-state-in-effect lint 规则）
+  - page.tsx：仓库切换 + 秒级时钟(●LIVE) + 4 统计卡 + Data Integrity 卡（服务端比对 + 客户端全量审计：
+    总数=rev-list、唯一 hash、孤儿 parent=0、6 项字段完整性）+ AI commits 展示 + 首/最新/merge 样本
+    + Loading skeleton + Error(Unable to read Git history + Retry) + sticky footer
+- QA（agent-browser）：页面完整渲染、时钟跳动验证(04:42:02→04:42:05)、仓库切换 demo→self、
+  控制台零错误、390px 移动端无横向溢出、全部完整性检查 PASS
+- 性能实测（demo, 6430 commits, 6.48MB JSON）：冷 1295ms（含 19 分支 rev-list）/ 缓存 84ms；
+  self 提交后缓存自动失效并识别新 commit
+- self 仓库真实 commit：415c49f "feat(data-layer): ..." 带 Co-Authored-By: Claude trailer
+  → API 正确检测 ai: Claude（端到端真实数据闭环）
+- bun run lint 通过（修复过一次 use-clock 的 set-state-in-effect）
+
+Stage Summary:
+- Phase 1 全部验收项达成：所有 commit 可获取（6430=6430）/ hash/message/author/时间/parent/branch/merge/
+  文件变化全部正确 / AI 检测基于真实 trailer / 5000+ commits 不卡（冷 1.3s 缓存 84ms）
+- 关键文件：src/lib/git/*（10 文件）、src/app/api/git/*（4 routes）、page.tsx、providers.tsx、use-clock.ts
+- 重大发现：express 里有 3 个真实 Claude 协作 commit（CVE 修复，2026 年）——AI Activity 不是空想，数据就在那
+- self 仓库已开始积累"被 AI 开发"的真实历史（1 个 AI commit）
+
+未解决问题或风险，建议下一阶段（Phase 2 Commit Graph）优先事项:
+1. 【下一步主线】自研 SVG 轨道布局：拓扑排序 → 轨道分配（分叉开新轨/merge 合轨）→ 贝塞尔曲线；
+   zoom/pan 用 SVG transform；6430 commits 需视口裁剪 + memo（分层：<g> edges 层 + nodes 层）
+2. 6.48MB payload 对 graph 渲染偏大：Phase 2 可考虑 commits 接口瘦身模式（省略 fullMessage/branches 长列表，
+   按需 detail 拉取）——但必须保持"全部 commit 可访问"红线
+3. 分支包含关系计算是 O(分支数×N)，分支数 >50 的仓库会慢——可加 `--contains` 稀疏化或并行 Promise.all
+4. /api/git/commit/[hash] 目录名含 [hash]，git add 时显示为 "commit/ash]/route.ts"（shell 转义显示问题，
+   实际文件路径正确，已正常提交）
+5. express 仓库 clone 于 2026-10-04，静态快照；如需更新历史可定期 git fetch（暂不需要）
