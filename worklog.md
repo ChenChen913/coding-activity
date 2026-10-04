@@ -302,3 +302,76 @@ Stage Summary:
    如需可上虚拟滚动
 4. 年份直方图在超宽仓库（>30 年）会横向滚动——当前 17 年无问题
 5. self 仓库历史正持续积累（9 commits / 4 AI）——产品"自己开发自己"的叙事素材
+
+---
+Task ID: 5
+Agent: main (Z.ai Code, cron round 5)
+Task: Phase 5 —— Dashboard 整合：Insights 区（Contributors / Commit Rhythm / Conventions）+ author 过滤全联动
+
+Work Log:
+- 前置回归 QA（agent-browser）：Phase 4 无回归（timeline 点击联动 ✓ / 控制台零错误 ✓）
+- 新建 src/components/dashboard/（3 个组件，~700 行）：
+  → contributor-card.tsx：真实贡献者排行（412 个 git 身份，按邮箱聚合）
+    · 排名 + 姓名首字母头像（8 色暖色系 hash）+ commit 数 + 相对条形（motion 生长动画）
+    · AI 协作者徽章（真实 trailer 检测，Dave Tashner / Mayvis 2 人）
+    · 点击行 → 全 dashboard 聚焦该作者（graph/timeline/rhythm/conventions 同步）
+    · Top 8 + "Show all 412" 展开（max-h-300px 滚动列表）
+  → rhythm-card.tsx：提交节奏卡
+    · By hour（24 柱）/ By weekday（7 柱）双模式切换
+    · hover 计数气泡（DOM bubble，无 re-render）+ 峰值柱 emerald 高亮
+    · 诚实标注 "browser-local time"（时间戳解析自真实 committedAt）
+  → conventions-card.tsx：消息规范卡
+    · parseType 正则解析 conventional commits（feat/fix/docs/build/deps/…）
+    · 命名类型按频次排序在前，other 兜底沉底（不视觉霸屏）
+    · AI-assisted 占比条（真实数据：3/6430 = 0.05%）
+- 修复 2 个真实数据诚实性问题：
+  1) 【重要】作者过滤键不一致：贡献者卡按邮箱聚合（TJ=4,071 含 3 个署名变体），
+     但 author 过滤按名字子串只匹配 2,786 → 改为邮箱为键（authorFilter={name,key}，
+     key=email||name），点击"TJ Holowaychuk 4,071"现在精确返回 4,071 ✓
+  2) Conventions 排序 bug："other"（80%，express 早期非规范历史是事实）按频次
+     排第一且出现两个 other 标签 → other 永远沉底合并显示
+- 顺手修复预存 bug：分支过滤时 Integrity 卡"delivery check"误报失败（5,979≠6,430
+  显示红叉）→ clientFiltered prop：过滤态显示"Full history intact — filter active
+  on the client (4,071 of 6,430 shown)" + 绿勾
+- page.tsx 集成：graph 卡下方新增 INSIGHTS 区（1/2/3 列响应式网格，
+  contributors md:col-span-2）+ authorFilter 状态贯通 commits query + 工具栏
+  author chip（emerald 底 + X 一键清除）+ 切换分支/仓库时重置
+- MultiEdit 部分失败经验：失败前的编辑已生效（非原子），需 grep 验证实际状态后补齐
+- lint 零错误；dev.log 全 200
+- QA 全绿（agent-browser）：
+  → Contributors：412 身份 / top8 排行 / 展开后 412 行可滚动 ✓
+  → 点击 TJ：timeline 4,071 activities（= 排行卡计数，变体全覆盖）✓ /
+    chip 显示 ✓ / 贡献者行高亮 ✓ / graph 23 行 ✓
+  → 点击 Jonathan Ong：84 activities ✓ / chip X 清除 → 6,430 恢复 ✓
+  → 再次点击 TJ（toggle off）：6,430 恢复 ✓
+  → 深度联动：聚焦 TJ 后 Rhythm 总数=4,071 ✓ / Conventions 显示 TJ 个人风格
+    （revert/changed/added/fixed —— 与 express 现代规范史完全不同的真实洞察）✓
+  → Rhythm：hour 模式 24 柱总和 6,430 ✓ peak 16:00 / weekday 模式 7 柱总和
+    6,430 ✓ peak Thu ✓
+  → Conventions：deps 491 / build 281 / docs 140 / tests 111 / examples 52 /
+    fix 49 / feat 21 / other… 5,285（守恒 6,430）✓ / 20% conventional（真实）✓
+  → Integrity 过滤态："4,071 of 6,430 shown" + 全 history intact ✓
+  → 仓库切换：self 仓库 1 贡献者（Z User 10 commits）边界正常 ✓ /
+    self 贡献者点击 → 10 activities ✓
+  → 布局：1280px 3 列 / 390px 1 列无溢出 ✓ / 控制台全程零错误 ✓
+  → VLM 视觉审查 Insights 截图：NO BUGS ✓
+- self 仓库真实 commit：9bcb979（带 Claude trailer）
+
+Stage Summary:
+- Phase 5 全部验收达成：Repository / Stats / Graph / Timeline / Detail 五位一体成品
+- 核心新能力：贡献者排行点击驱动全 dashboard 过滤（邮箱键保证身份变体不丢），
+  这是 Dashboard 整合的灵魂 —— 统计卡不是摆设而是交互入口
+- 关键新文件：dashboard/contributor-card.tsx、rhythm-card.tsx、conventions-card.tsx；
+  修改：page.tsx（authorFilter 贯通）、integrity-card.tsx（clientFiltered）
+- 数据诚实性再进一步：排行计数 = 过滤视图计数（4,071=4,071）；过滤态完整性
+  语义修正（区分"主动过滤"与"截断失败"）
+
+未解决问题或风险，建议下一阶段（Phase 6 Visual Polish）优先事项:
+1. 【下一步主线】Visual Polish：排版/间距/动效统一审计（framer-motion 过渡一致性、
+   卡片 hover 层次、暗色模式验证——当前所有配色在 light 下验证，dark 未测）
+2. Loading/Empty/Error 三态在 Insights 三卡的自适应（self 小仓库空分支过滤组合下的
+   rhythm/conventions 空数据表现）
+3. timeline 虚拟滚动（Load more 累积 DOM 风险仍在）
+4. 贡献者头像 hover 可显示 email + commits 时间范围 tooltip（增强但不紧急）
+5. push/CI/deploy 活动仍待 Phase 7 GitHub 集成补数据源
+6. self 仓库 10 commits / 5 AI —— "工具开发自己"叙事素材持续积累
