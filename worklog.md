@@ -432,3 +432,87 @@ Stage Summary:
 3. timeline 虚拟滚动（Load more 累积 DOM 风险仍在，当前 80/页可控）
 4. diff 语法高亮（当前 +/- 行背景着色，已够用；可上轻量 tokenizer）
 5. self 仓库 14 commits / 6 AI —— "工具开发自己"叙事素材持续积累
+
+---
+Task ID: 7
+Agent: main (Z.ai Code, cron round 7)
+Task: Phase 7 —— GitHub 集成：真实 tags 作为 release 活动 + GitHub 深链全家桶 + live events 诚实降级
+
+Work Log:
+- 前置回归 QA（agent-browser）：Phase 6 无回归（键盘导航 ✓ / 详情面板 ✓ / 控制台零错误 ✓）
+- 环境实测决策：GitHub REST API 未认证共享 IP 持续限流（403 rate limit）→
+  本轮主数据源选择**零网络的真数据**：git tags（express 有 305 个真实 tag）+
+  remote URL 解析深链；GitHub events API 走"基础设施就绪 + 诚实降级"路线
+- 数据层 3 个新文件：
+  → tags.ts：单次 for-each-ref refs/tags 拉全量（\x1f/\x1e 分隔，annotated tag 剥皮
+    *objectname）；annotated 用 taggerdate（dateSource:'tagger'），lightweight 用
+    目标 commit 日期（dateSource:'commit'，诚实标注）——批量 git log --no-walk
+    解析 commit 日期（400 hash/批防 argv 溢出）；cached() 60s TTL
+  → github-events.ts：真实 /repos/{o}/{r}/events API（PushEvent/PR/Release/Star/
+    Fork/Create/Delete 映射为紧凑活动），403/429→rate-limited、超时→network、
+    无 remote→no-github-remote，全部诚实返回 available:false + reason；5min 内存缓存
+  → src/lib/github.ts（客户端安全纯函数）：githubCommitUrl / githubTreeUrl
+    （origin/ 前缀剥离）/ githubTagUrl / githubProfileFromEmail（noreply 邮箱推导
+    用户名，[bot] 账号映射 /apps/ URL——dependabot[bot] 实测正确）
+- API ×2：GET /api/git/tags（305 tags / 138ms / 0 坏记录）、
+  GET /api/git/github-events（demo: rate-limited / self: no-github-remote，均 200）
+- ActivityTimeline 升级（Phase 4 → Phase 7）：
+  → releases 并入统一活动流：305 个 Release 活动（rose Tag 图标 + annotated/
+    lightweight 徽章 + tagger/lightweight tag 作者位 + 诚实 tooltip）
+  → Releases 过滤 chip（真实计数）+ 年份直方图 rose 方块标记（17 年有 release）
+    + 柱高上限 48→44 防双标记溢出
+  → 视图一致性：releases 按 viewHashes 过滤（分支过滤 origin/4.x 时 305→267，
+    只显示指向该视图内 commit 的 tag——守恒 5,436+458+267=6,161）
+  → GitHub live feed 区（available 时渲染，push 事件可跳 graph）
+  → 出处说明升级：lightweight tag 日期来源说明 + GitHub events 可用性诚实一行
+- page.tsx：Open on GitHub 按钮（Github 图标+外链箭头）/ releases 统计
+  （"305 releases" rose）/ tagsQuery + githubEventsQuery（5min 轮询）/
+  跨仓 repoId 守卫贯通 / Reload 全量 refetch
+- commit-detail-panel：面板头 Github 图标按钮 + Hash 行外链按钮 + 分支 chip
+  变链接（tree/{branch}）+ 作者名旁 GitHub 主页图标（仅 noreply 邮箱可推导时显示）
+- contributor-card：行尾 GitHub 图标链接（绝对定位避免 button 嵌套 a 的非法
+  HTML）+ tooltip 增加 "GitHub · username" 行
+- 修复 4 个真实 bug（QA 发现）：
+  1) 【Phase 2 遗留】graph 行分支徽章 shrink-0 在窄视口溢出 72px 压到作者文本
+     （DOM 矩形实测确认）→ 徽章 min-w-0+max-w-60%+truncate、消息 min-w-48px、
+     容器 overflow-hidden 硬保障；1024px 复测 overlap=0
+  2) 390px 横向溢出 138px（新 GitHub 按钮撑爆右侧工具行 512px>390px）→
+     工具行 flex-wrap + 按钮小屏图标化 + Select 170px→sm:210px；复测溢出 0
+  3) 详情面板作者 email 超长截断 → break-all 折行（dependabot 邮箱实测 2 行完整）
+  4) 超长分支 chip 挤压边缘 → max-w-220px truncate + title 全名悬停
+- lint 零错误；dev.log 全 200；控制台全程零错误
+- QA 全绿（agent-browser + VLM×5 截图审查）：
+  → Releases chip 点击：80/305 纯 release 行零污染 ✓
+  → release 行点击：滚动到 graph + pulse 选中 + 详情面板 + GitHub commit 链接 ✓
+  → 深链正确性：commit/899b524… ✓、origin/4.x→tree/4.x 前缀剥离 ✓、
+    apps/dependabot ✓、普通邮箱作者无链接（不猜测）✓
+  → 分支过滤 origin/4.x：releases 视图过滤 305→267 守恒 ✓
+  → self 仓库边界：无 GitHub 按钮/无 releases 统计/无 Releases chip/
+    诚实降级文案 ✓ / 零溢出 ✓
+  → 暗色模式整页 VLM OK ✓ / 亮色整页 VLM（修复 2 处后复测）✓ /
+    timeline 专属截图 ✓ / 移动端 ✓
+  → VLM 误报甄别：首轮"origin/dependabot 重叠"实为真 bug（已修）；
+    "annotated pill 缺失"为分页深度问题非缺陷；graph 消息 truncate 为设计意图
+- self 仓库真实 commit：39af2f8（Claude trailer）→ API 立即识别
+  （16 commits / 7 AI；含 1 个 cron 系统自动 commit 无 trailer，正确未标 AI）
+
+Stage Summary:
+- Phase 7 验收达成：GitHub 集成三类能力全部落地——
+  ① 零网络真数据（305 tags → releases 活动流 + 深链）
+  ② live events 基础设施（结构就绪，限流时诚实降级不伪造）
+  ③ 全界面 GitHub 深链（repo/commit/branch/author/contributor）
+- 数据诚实性再进一步：lightweight tag 日期=commit 日期明确标注 dateSource；
+  GitHub events 不可用时显示真实原因而非空白；作者链接仅从真实 noreply
+  邮箱推导，推导不出就不显示
+- 时间线现在讲述完整故事：6,735 个活动 = 6,430 commits + 305 releases
+  （17 年发布史与提交史交织，rose 标记一眼可辨）
+- 顺手修复 Phase 2 遗留的窄视口徽章重叠 bug（QA 期间 DOM 矩形实测发现）
+
+未解决问题或风险，建议下一阶段（Phase 6 收尾 / Phase 7 增强）优先事项:
+1. 【下一步主线建议】移动端 detail panel 升级为全屏 Sheet（vaul 已装，
+   diff 浏览体验显著提升）；timeline 虚拟滚动（Load more 累积 DOM）
+2. GitHub events 在本沙箱持续限流——限流解除（每小时重置）后 live feed
+   区会自动点亮；如需强制验证可临时加 GITHUB_TOKEN 支持（env 注入）
+3. releases 可加"版本时间轴"专属视图（v5.x / v4.x 分代序列可视化）
+4. diff 语法高亮（轻量 tokenizer，可选）
+5. self 仓库 16 commits / 7 AI —— 持续积累"工具开发自己"叙事
