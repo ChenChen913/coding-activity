@@ -516,3 +516,73 @@ Stage Summary:
 3. releases 可加"版本时间轴"专属视图（v5.x / v4.x 分代序列可视化）
 4. diff 语法高亮（轻量 tokenizer，可选）
 5. self 仓库 16 commits / 7 AI —— 持续积累"工具开发自己"叙事
+
+---
+Task ID: 8
+Agent: main (Z.ai Code, cron round 8)
+Task: Phase 6/7 收尾增强 —— 移动端全屏 Sheet + timeline 滑动窗口化 + Release Timeline 版本时间轴
+
+Work Log:
+- 前置回归 QA：Phase 7 无回归（键盘导航/305 releases/GitHub 按钮/控制台零错误）
+- 【环境事件】dev server 进程两次死亡且系统 supervisor 未自动恢复；
+  实测发现 Bash 工具命令结束时清理 cgroup 内所有进程（setsid/disown/
+  nohup 均无效）→ 本轮所有 QA 改用"单命令全家桶"模式：scripts/qa8*.sh
+  在一条 Bash 命令内（setsid 起 server → 轮询就绪 → agent-browser 全套
+  QA → 截图），脚本退出时 server 随命令结束。QA 脚本已入库可复用
+- 8-a 移动端全屏 Sheet（commit-detail-panel 重构为双壳）：
+  → 抽 panelContent 共享 JSX；桌面 hidden md:flex 侧栏（340/380px）不变
+  → 移动 vaul Drawer：h-[92dvh] 圆角顶部 + 拖拽手柄 + Overlay + 安全区
+    padding + sr-only DrawerTitle；Escape/overlay/拖拽/X 四种关闭
+  → 滚动空间 707px（旧 max-h-[55vh]=464px，+52%）
+  → 桌面↔移动切换时双壳自动接管（selectedHash 延续，无需关闭重开）
+  → vaul 1.1.2 API 陷阱：只导出复合对象 Drawer（Drawer.Content 等子
+    组件访问），顶层 DrawerContent/DrawerTitle 命名导入会 build 失败
+  → 删除 if(!hash) return null（阻止 Drawer 常驻 mount 控 open）
+- 8-b timeline 滑动窗口化（chat-log 模式，替代真虚拟滚动的轻量方案）：
+  → windowStart/windowSize 状态模型：Load more 先长到 MAX_WINDOW=640，
+    超出后窗口前滑（顶部行卸载）；顶部 Load earlier 反向回滑（等尺寸）
+  → "showing 321–960 of 6,735" 精确范围显示；过滤切换 resetWindow()
+  → 修复自研 bug×2：①setExtra updater 内调用 setHiddenTop（React 要求
+    updater 纯函数，改渲染快照计算）；②visibleCount 公式无上限（重构
+    为 windowStart/windowSize 清晰模型后 640 恒定）
+  → 红线合规：窗口是渲染分页不是数据隐藏——双向可达、计数诚实
+- 8-c Release Timeline 卡（新宽幅视觉组件 release-timeline-card.tsx）：
+  → 305 个真实 tag 全量渲染在横向时间轴（2010→2026），major 分代泳道
+    v5..v0（16+99+110+39+16+25=305 守恒）；latest v4.22.3 ring 高亮
+  → 交互：点任意 dot → onSelect 跳 graph 居中选中+详情面板；hover
+    title 显示 tag 名/日期/tagger/annotated；选中 commit dot 高亮
+  → 空态（无 tags 仓库）诚实文案；出处脚注（annotated/lightweight 日期
+    语义）；年份轴（>12 年跨度每 2 年刻度）
+- 修复 VLM 审查发现×3：
+  1) 泳道最右 dot + count 被右缘裁剪 → count 从 lane body 移出为 flex
+     尾部列（w-8），dots 百分比域与计数列物理隔离（dotsClipped=false 复测）
+  2) 移动端 Sheet Hash 行溢出（40 字符长尾+双图标 > 282px 内容宽）→
+     长尾 hidden md:inline（完整 hash 仍由 copy/title 提供，无数据丢失）
+  3) （email break-all 孤字为可接受排版细节，保留完整性优先）
+- lint 零错误；QA×6 轮（qa8/round2/round3/round4/round5/final/verify）
+  全绿：窗口化语义（11 连击后 321–960 恰 640 行 + earlier 回滑等尺寸 +
+  过滤重置）/ Sheet 双壳 / overlay+Escape 真实事件关闭 / chips 守恒
+  （5,894+536+305=6,735）/ 390px 零溢出 / 控制台全程零错误
+- VLM×4：Sheet 截图（修 2 处后 OK）/ Release 卡（修 1 处后 OK）/
+  复审双 OK
+- self 仓库真实 commit（带 Claude trailer）
+
+Stage Summary:
+- Phase 6/7 遗留清单三项全部落地：全屏 Sheet（移动体验质变）、
+  timeline DOM 有界（滑动窗口）、releases 版本时间轴（专属视图）
+- 新增可复用资产：scripts/qa8*.sh 单命令 QA harness（应对 cgroup
+  进程清理的环境约束，server+browser+断言一站式）
+- 数据诚实性：窗口计数精确到范围；Release 卡 305 点零抽样全渲染
+- 产品现状：空间（graph）+ 时间（timeline）+ 发布史（release lanes）
+  三视图 + 桌面/移动双形态完整体验
+
+未解决问题或风险，建议下一阶段优先事项:
+1. 【环境】dev server 进程稳定性——Bash cgroup 清理导致 server 无法
+   常驻；QA 已有脚本化方案，但**用户访问前需确认系统自动重启生效**，
+   建议下一轮先 curl 探活，死了则用 scripts/qa8.sh 模式拉起
+2. 【下一步主线建议】diff 语法高亮（轻量 tokenizer）；Sheet 内 diff
+   折叠全屏体验打磨（移动端 Expand all 后长 diff 的滚动性能实测）
+3. GitHub events 限流未解除（沙箱共享 IP）；解除后 live feed 自动点亮
+4. Release Timeline 移动端泳道较挤（6 泳道 × 390px）——可加横向滚动
+   或泳道折叠（点击 v5 展开 patch 级明细）
+5. self 仓库 18 commits / 8 AI —— "工具开发自己"叙事持续积累
