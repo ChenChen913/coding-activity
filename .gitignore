@@ -52,3 +52,7 @@ prompt
 server.log
 # Skills directory
 /skills/
+
+# AI Coding Activity: local git repositories used as real data sources
+# (each subdirectory is an independent git repo, never committed into self)
+/repos/
