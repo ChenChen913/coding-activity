@@ -1,0 +1,301 @@
+'use client'
+
+import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { motion } from 'framer-motion'
+import { format, formatDistanceToNowStrict } from 'date-fns'
+import {
+  Check,
+  Copy,
+  FileDiff,
+  GitBranch,
+  GitMerge,
+  GitCommitHorizontal,
+  Loader2,
+  Sparkles,
+  X,
+} from 'lucide-react'
+
+import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
+import type { CommitDetailResponse } from '@/lib/git/types'
+
+export interface CommitDetailPanelProps {
+  repoId: string
+  hash: string | null
+  onSelect: (hash: string) => void
+  onClose: () => void
+}
+
+async function fetchDetail(
+  repoId: string,
+  hash: string,
+): Promise<CommitDetailResponse> {
+  const res = await fetch(
+    `/api/git/commit/${hash}?repo=${encodeURIComponent(repoId)}`,
+  )
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string }
+    throw new Error(body.error ?? `Request failed (${res.status})`)
+  }
+  return res.json() as Promise<CommitDetailResponse>
+}
+
+function MetaRow({
+  label,
+  children,
+}: {
+  label: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="flex items-start gap-3 py-1.5">
+      <span className="w-16 shrink-0 pt-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+        {label}
+      </span>
+      <div className="min-w-0 flex-1 text-sm">{children}</div>
+    </div>
+  )
+}
+
+export function CommitDetailPanel({
+  repoId,
+  hash,
+  onSelect,
+  onClose,
+}: CommitDetailPanelProps) {
+  const [copied, setCopied] = useState(false)
+
+  const detailQ = useQuery({
+    queryKey: ['git', 'commit', repoId, hash],
+    queryFn: () => fetchDetail(repoId, hash as string),
+    enabled: Boolean(hash),
+  })
+
+  if (!hash) return null
+
+  const d = detailQ.data
+  const c = d?.commit
+
+  const copyHash = async () => {
+    if (!c) return
+    try {
+      await navigator.clipboard.writeText(c.hash)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1400)
+    } catch {
+      /* clipboard unavailable */
+    }
+  }
+
+  return (
+    <motion.aside
+      role="complementary"
+      aria-label="Commit details"
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.22, ease: 'easeOut' }}
+      className="flex max-h-[55vh] w-full shrink-0 flex-col border-t md:max-h-none md:w-[340px] md:border-l md:border-t-0 xl:w-[380px]"
+    >
+      {/* header */}
+      <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
+        <div className="flex min-w-0 items-center gap-1.5">
+          {c?.isMerge ? (
+            <GitMerge className="h-4 w-4 shrink-0 text-muted-foreground" />
+          ) : (
+            <GitCommitHorizontal className="h-4 w-4 shrink-0 text-muted-foreground" />
+          )}
+          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            {c?.isMerge ? 'Merge Commit' : 'Commit'}
+          </span>
+          {c?.aiAgent && (
+            <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-1.5 py-px text-[10px] font-medium text-amber-700">
+              <Sparkles className="h-2.5 w-2.5" />
+              {c.aiAgent}
+            </span>
+          )}
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6"
+          aria-label="Close details"
+          onClick={onClose}
+        >
+          <X className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+
+      {/* body */}
+      <div className="slim-scrollbar min-h-0 flex-1 overflow-y-auto px-4 py-4">
+        {detailQ.isLoading && (
+          <div className="space-y-3">
+            <Skeleton className="h-5 w-3/4" />
+            <Skeleton className="h-3 w-1/2" />
+            <Skeleton className="h-16 w-full" />
+            <Skeleton className="h-24 w-full" />
+          </div>
+        )}
+
+        {detailQ.error && (
+          <div className="py-8 text-center text-xs text-muted-foreground">
+            <p className="font-medium text-red-600">Failed to load commit.</p>
+            <p className="mt-1">{(detailQ.error as Error).message}</p>
+            <Button
+              size="sm"
+              variant="outline"
+              className="mt-3"
+              onClick={() => void detailQ.refetch()}
+            >
+              Retry
+            </Button>
+          </div>
+        )}
+
+        {d && c && (
+          <div className="space-y-4">
+            {/* message */}
+            <div>
+              <h3 className="text-[15px] font-semibold leading-snug">
+                {c.message}
+              </h3>
+              {c.fullMessage !== c.message && (
+                <pre className="slim-scrollbar mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg border bg-muted/40 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+                  {c.fullMessage.slice(c.message.length).trim()}
+                </pre>
+              )}
+            </div>
+
+            {/* diff summary */}
+            <div className="flex items-center gap-3 rounded-lg border px-3 py-2 text-xs tabular-nums">
+              <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+                <FileDiff className="h-3.5 w-3.5" />
+                {d.stats.filesChanged} files
+              </span>
+              <span className="font-medium text-emerald-600">
+                +{d.stats.additions.toLocaleString()}
+              </span>
+              <span className="font-medium text-red-600">
+                −{d.stats.deletions.toLocaleString()}
+              </span>
+            </div>
+
+            {/* metadata */}
+            <div className="divide-y divide-border/60">
+              <MetaRow label="Hash">
+                <div className="flex items-center gap-1.5">
+                  <code className="font-mono text-xs">{c.shortHash}</code>
+                  <span className="font-mono text-[10px] text-muted-foreground">
+                    {c.hash.slice(7)}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-5 w-5"
+                    aria-label="Copy full hash"
+                    onClick={copyHash}
+                  >
+                    {copied ? (
+                      <Check className="h-3 w-3 text-emerald-600" />
+                    ) : (
+                      <Copy className="h-3 w-3" />
+                    )}
+                  </Button>
+                </div>
+              </MetaRow>
+
+              <MetaRow label="Author">
+                <div className="leading-tight">
+                  <div className="font-medium">{c.author}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {c.authorEmail}
+                  </div>
+                </div>
+              </MetaRow>
+
+              <MetaRow label="Authored">
+                <div className="tabular-nums">
+                  <div>{format(new Date(c.authoredAt), 'yyyy-MM-dd HH:mm:ss')}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {formatDistanceToNowStrict(new Date(c.authoredAt), {
+                      addSuffix: true,
+                    })}
+                  </div>
+                </div>
+              </MetaRow>
+
+              {c.committedAt !== c.authoredAt && (
+                <MetaRow label="Committed">
+                  <div className="tabular-nums">
+                    <div>{format(new Date(c.committedAt), 'yyyy-MM-dd HH:mm:ss')}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {formatDistanceToNowStrict(new Date(c.committedAt), {
+                        addSuffix: true,
+                      })}
+                    </div>
+                  </div>
+                </MetaRow>
+              )}
+
+              <MetaRow label="Parents">
+                <div className="flex flex-wrap gap-1.5">
+                  {c.parents.length === 0 ? (
+                    <span className="text-xs text-muted-foreground">root</span>
+                  ) : (
+                    c.parents.map((p) => (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => onSelect(p)}
+                        className="rounded-md border bg-muted/40 px-1.5 py-0.5 font-mono text-[11px] transition-colors hover:bg-muted"
+                        title="Jump to parent commit"
+                      >
+                        {p.slice(0, 7)}
+                      </button>
+                    ))
+                  )}
+                </div>
+              </MetaRow>
+
+              <MetaRow label="Branches">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <GitBranch className="h-3 w-3 text-muted-foreground" />
+                  {c.branches.length === 0 ? (
+                    <span className="text-xs text-muted-foreground">none</span>
+                  ) : (
+                    c.branches.slice(0, 8).map((b) => (
+                      <span
+                        key={b}
+                        className={`rounded-full border px-1.5 py-px text-[10px] ${
+                          b.includes('/')
+                            ? 'border-border text-muted-foreground'
+                            : 'border-teal-600/30 bg-teal-600/10 font-medium text-teal-700'
+                        }`}
+                      >
+                        {b}
+                      </span>
+                    ))
+                  )}
+                  {c.branches.length > 8 && (
+                    <span className="text-[10px] text-muted-foreground">
+                      +{c.branches.length - 8} more
+                    </span>
+                  )}
+                </div>
+              </MetaRow>
+
+              {c.aiAgent && (
+                <MetaRow label="AI Trace">
+                  <p className="text-xs leading-relaxed text-amber-700">
+                    Detected from real commit trailers (Co-Authored-By /
+                    Generated-with). {c.aiAgent} participated in this change.
+                  </p>
+                </MetaRow>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </motion.aside>
+  )
+}

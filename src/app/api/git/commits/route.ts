@@ -4,19 +4,37 @@ import {
   resolveRepo,
   RepoNotGitError,
   type GitCommit,
+  type GraphCommit,
 } from '@/lib/git'
 import type { CommitsResponse } from '@/lib/git'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+function toGraphCommit(c: GitCommit): GraphCommit {
+  return {
+    hash: c.hash,
+    shortHash: c.shortHash,
+    message: c.message,
+    author: c.author,
+    authorEmail: c.authorEmail,
+    committedAt: c.committedAt,
+    parents: c.parents,
+    isMerge: c.isMerge,
+    aiAgent: c.aiAgent,
+    branchCount: c.branches.length,
+    headBranches: c.headBranches,
+  }
+}
+
 /**
- * GET /api/git/commits?repo=demo&q=&author=&branch=&limit=&offset=
+ * GET /api/git/commits?repo=demo&q=&author=&branch=&limit=&offset=&slim=1
  *
  * Returns the commit list. By default EVERY commit is returned —
  * no artificial truncation. Filtering is explicit and reported honestly
  * (total / returned / filtered). `limit/offset` exist for consumers that
  * want paging; they are opt-in, never default.
+ * `slim=1` projects commits to the graph-optimized shape (same count).
  */
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams
@@ -26,6 +44,7 @@ export async function GET(request: NextRequest) {
   const branch = params.get('branch')?.trim() ?? ''
   const limitRaw = params.get('limit')
   const offsetRaw = params.get('offset')
+  const slim = params.get('slim') === '1'
 
   try {
     const entry = await resolveRepo(repoId)
@@ -75,14 +94,14 @@ export async function GET(request: NextRequest) {
 
     const fetchMs = Math.round(performance.now() - startedAt)
 
-    const body: CommitsResponse = {
+    const body: CommitsResponse<GraphCommit | GitCommit> = {
       repoId: entry.id,
       total,
       returned: returned.length,
       filtered:
         Boolean(q || author || branch) || filteredCount !== total,
       fetchMs,
-      commits: returned,
+      commits: slim ? returned.map(toGraphCommit) : returned,
     }
 
     return NextResponse.json(body)

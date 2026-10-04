@@ -120,3 +120,48 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ------------------------------------------------------------------ */
+/*  AI Coding Activity — graph & list refinements                      */
+/* ------------------------------------------------------------------ */
+
+/* pulsing ring around the selected commit node (SVG circle) */
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.55);
+    opacity: 0.9;
+  }
+  70% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+.pulse-ring {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: pulse-ring 1.9s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+/* slim scrollbar for detail panel / search results / message bodies */
+.slim-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: oklch(0.87 0 0) transparent;
+}
+.slim-scrollbar::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+.slim-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.slim-scrollbar::-webkit-scrollbar-thumb {
+  background: oklch(0.87 0 0);
+  border-radius: 999px;
+}
+.slim-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.78 0 0);
+}

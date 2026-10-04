@@ -167,7 +167,31 @@ export interface RepoOverview {
   contributors: GitContributor[]
 }
 
-export interface CommitsResponse {
+/**
+ * Graph-optimized projection of a commit.
+ * Every commit is still present — slim only drops detail fields that the
+ * graph does not render (full message body, committer identity, full
+ * branch membership). The detail endpoint returns the full GitCommit.
+ */
+export interface GraphCommit {
+  hash: string
+  shortHash: string
+  message: string
+  author: string
+  authorEmail: string
+  committedAt: string
+  parents: string[]
+  isMerge: boolean
+  aiAgent?: string
+  /** how many branches contain this commit (names available via detail) */
+  branchCount: number
+  /** branches whose tip is this commit — rendered as chips in the graph */
+  headBranches: string[]
+}
+
+export interface CommitsResponse<
+  T extends GitCommit | GraphCommit = GitCommit,
+> {
   repoId: string
   /** total commits before any filtering (the honest full count) */
   total: number
@@ -175,7 +199,7 @@ export interface CommitsResponse {
   returned: number
   filtered: boolean
   fetchMs: number
-  commits: GitCommit[]
+  commits: T[]
 }
 
 export interface CommitDetailResponse {
