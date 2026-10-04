@@ -236,3 +236,69 @@ Stage Summary:
 2. 顺手优化：分支过滤 refetch 空窗（保留旧图渐变）、graph 键盘上下导航、空白点击取消选中
 3. diff 语法高亮（当前纯色着色，已够用；可选 react-syntax-highlighter 或轻量 tokenizer）
 4. 详情面板在移动端占 max-h-[55vh]，diff 浏览时滚动空间偏小——可加全屏 Sheet 模式
+
+---
+Task ID: 4
+Agent: main (Z.ai Code, cron round 4)
+Task: Phase 4 —— Activity Timeline：commit 统一活动时间线 + 年份直方图 + 类型过滤 + graph 联动（含顺手优化三项）
+
+Work Log:
+- 前置回归 QA（agent-browser）：Phase 2/3 全部无回归 —— 详情面板 ✓ / diff 展开 ✓ /
+  390px 无溢出 ✓ / 控制台零错误 ✓
+- types.ts：新增 TimelineActivity（Activity 扩展 shortHash/author/isMerge）——
+  时间线数据完全由已拉取的 commits 派生（零二次请求，天然覆盖 100% 历史）
+- activity-timeline.tsx（新组件，~500 行）：
+  → 年份直方图：17 根可点击年份柱（点击=年份过滤，高亮 emerald），AI 年份柱顶琥珀标记
+  → 类型过滤 chips：All / Commits / Merges / AI（真实计数，非估算）
+  → 月分组列表：sticky 月头（月名+活动数）+ 左侧 rail 线 + 类型化节点
+    （commit 圆点/merge teal/AI 琥珀 Sparkles）+ framer-motion 入场
+  → 分页：Load more 每页 80 条（6,430 条不全量渲染 DOM）
+  → 点击 activity → graph 居中选中 + 页面平滑滚动到 graph 卡（selectAndReveal）
+  → 选中项双向同步高亮（graph 选节点 → timeline 高亮对应行）
+  → 空态（过滤组合无结果）/ Loading skeleton / 出处说明（provenance note：
+    AI 标记来自真实 trailer；push/CI/deploy 待 GitHub 集成）
+- 修复自研 bug：AI 标记点绝对定位公式错误（短柱时标记跑到柱下方）→ 改 flex 流式
+  布局（gap 3px 永远贴柱顶），柱高上限 56→48 防溢出
+- 顺手优化（Phase 3 遗留清单）：
+  1) 分支过滤空窗：TanStack Query placeholderData=keepPreviousData（切分支保留旧图）
+     + repoId 守卫（commitsData.repoId === repoId，杜绝切仓库时旧仓库数据泄漏）
+     + CommitGraph/ActivityTimeline key={repoId} 干净重挂载
+  2) graph 键盘导航：容器 tabIndex=0 + ArrowUp/Down 逐 commit 移动选中（layout.rowOf 定位）
+  3) Escape 清除选中 / SVG 背景空白点击取消选中（e.target===e.currentTarget 守卫 +
+     didPan 防拖拽误触）
+- page.tsx 重组：graph 卡包 scroll-mt 容器（graphCardRef）→ ACTIVITY TIMELINE 卡 →
+  折叠完整性卡；删除旧 AI 活动条（被 timeline 的 AI 过滤完整替代）
+- lint 零错误；dev.log 全 200
+- QA 全绿（agent-browser）：
+  → Timeline 渲染：6,430 activities / Jun 2009 → Oct 2026 / 3 AI-assisted ✓
+  → AI 过滤：3 个真实 Claude commit 按月分组（2026-10/08/02 各 1）✓
+  → 点击 activity：页面滚动 scrollY=59 + 节点 pulse-ring + 详情面板打开 ✓
+  → 年份过滤：2019 → 仅 2019 月份分组；AI+2019 → 空态文案正确 ✓
+  → Load more：80→160 条 / 21 月组 / "6,270 left" ✓
+  → 键盘导航：ArrowDown 选中→连续移动（hbs bump → conditional revalidation）✓ /
+    Escape 清除+关面板 ✓
+  → 背景点击：SVG 空白处点击清除选中+关面板 ✓
+  → 分支过滤 origin/5.0：timeline 同步 5,979 activities / graph 显示 5.0.0 tip ✓
+  → 仓库切换 demo↔self：无跨仓数据泄漏（切换瞬间 loading 态）/ self 8 activities ✓
+  → 390px 移动端无横向溢出 ✓ / 控制台零错误 ✓
+  → VLM 视觉审查：Timeline 卡片专属截图 NO BUGS / 移动端 NO BUGS
+    （首轮混合截图的"+1 badass 溢出"为 VLM 误读，代码中不存在该文本）
+- self 仓库真实 commit：743e88f（带 Claude trailer）→ API 立即识别（9 commits / 4 AI）
+
+Stage Summary:
+- Phase 4 全部验收达成：commit 统一时间线 / 时间分组 / 类型过滤 / 点击跳转 graph /
+  AI 活动真实标注（trailer 推断，非伪造）
+- 关键新文件：timeline/activity-timeline.tsx；修改：page.tsx、commit-graph.tsx、types.ts
+- 产品现状：graph 主视图 + 详情/diff + 完整活动时间线 = Git 历史的"空间+时间"双视图已成型
+- Phase 3 遗留的三个顺手优化项全部完成（空窗/键盘导航/取消选中）
+
+未解决问题或风险，建议下一阶段（Phase 5 Dashboard 整合）优先事项:
+1. 【下一步主线】Dashboard 整合：Repository / Stats / Graph / Timeline / Detail 五位一体
+   —— 可加贡献者排行（contributors API 已有数据未展示）、语言/文件维度统计、
+   顶部全局统计条设计
+2. push/github/ci/deploy 活动类型结构已就绪但无数据源（静态 clone 无 reflog 历史）——
+   Phase 7 GitHub 集成时用 GitHub API 补齐
+3. timeline 大量 Load more 后 DOM 行数增长（当前 80/页可控，用户连点 50 次会到 6430 行）——
+   如需可上虚拟滚动
+4. 年份直方图在超宽仓库（>30 年）会横向滚动——当前 17 年无问题
+5. self 仓库历史正持续积累（9 commits / 4 AI）——产品"自己开发自己"的叙事素材
