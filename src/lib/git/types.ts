@@ -146,6 +146,17 @@ export interface Activity {
   aiAgent?: string
 }
 
+/**
+ * Timeline projection of a commit — every commit IS an activity. Derived
+ * client-side from the already-fetched commit list (no second fetch), so
+ * the timeline always covers 100% of the repository history.
+ */
+export interface TimelineActivity extends Activity {
+  shortHash: string
+  author: string
+  isMerge: boolean
+}
+
 /** Server-side integrity report — proves every commit was fetched. */
 export interface GitIntegrity {
   /** commits returned by the parser (git log --all) */

@@ -1,16 +1,18 @@
 'use client'
 
 /**
- * AI Coding Activity — Phase 2 · Commit Graph
+ * AI Coding Activity — Phase 4 · Commit Graph + Activity Timeline
  *
  * The graph is the hero: real Git history rendered as a lane-based commit
  * graph with zoom / pan / fit, branch filter, search-to-locate, hover
- * tooltips and a detail panel. Data integrity stays visible below as the
- * proof that every commit comes from the real repository.
+ * tooltips, keyboard navigation and a detail panel. Below it, every commit
+ * flows into a unified Activity Timeline (year histogram + type filters +
+ * month groups). Data integrity stays visible at the bottom as the proof
+ * that every commit comes from the real repository.
  */
 
-import { useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMemo, useRef, useState } from 'react'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import {
   Activity as ActivityIcon,
@@ -37,6 +39,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { CommitGraph } from '@/components/git-graph/commit-graph'
 import { CommitSearch } from '@/components/git-graph/commit-search'
 import { CommitDetailPanel } from '@/components/commit-detail/commit-detail-panel'
+import { ActivityTimeline } from '@/components/timeline/activity-timeline'
 import { IntegrityCard } from '@/components/integrity/integrity-card'
 import { useClock } from '@/hooks/use-clock'
 import type {
@@ -70,6 +73,9 @@ export default function Home() {
   const [branchFilter, setBranchFilter] = useState('all')
   const [selectedHash, setSelectedHash] = useState<string | null>(null)
 
+  /** the graph card — timeline selections scroll it into view */
+  const graphCardRef = useRef<HTMLDivElement>(null)
+
   const now = useClock()
 
   const reposQuery = useQuery({
@@ -94,24 +100,34 @@ export default function Home() {
         }`,
       ),
     enabled: Boolean(repoId),
+    // keep the previous graph visible while a new branch filter loads —
+    // no blank window between refetches
+    placeholderData: keepPreviousData,
   })
 
   const repos = reposQuery.data?.repos.filter((r) => r.available) ?? []
   const overview = overviewQuery.data
   const commitsData = commitsQuery.data
-  const commits = commitsData?.commits ?? []
+
+  /** placeholder-data guard: while switching repositories the query keeps
+      serving the previous repo's commits (keepPreviousData) — only render
+      commits that provably belong to the active repo. Branch switches
+      within the same repo keep the old graph visible (no blank window). */
+  const commitsMatchRepo = commitsData?.repoId === repoId
+  const commits = commitsMatchRepo ? (commitsData?.commits ?? []) : []
 
   const branches = overview?.branches ?? []
-
-  const aiCommits = useMemo(
-    () => commits.filter((c) => c.aiAgent).slice(0, 3),
-    [commits],
-  )
 
   const switchingRepo = (id: string) => {
     setRepoId(id)
     setBranchFilter('all')
     setSelectedHash(null)
+  }
+
+  /** select from anywhere (timeline / search) — center the graph card on screen */
+  const selectAndReveal = (hash: string) => {
+    setSelectedHash(hash)
+    graphCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
   const reloading =
@@ -262,117 +278,96 @@ export default function Home() {
         )}
 
         {/* ---------------- COMMIT GRAPH (hero) ---------------- */}
-        <Card className="overflow-hidden p-0">
-          <div className="flex flex-col md:flex-row">
-            <div className="min-w-0 flex-1">
-              <CommitGraph
-                commits={commits}
-                loading={commitsQuery.isLoading}
-                fetching={commitsQuery.isFetching && !commitsQuery.isLoading}
-                error={
-                  commitsQuery.error
-                    ? (commitsQuery.error as Error)
-                    : null
-                }
-                onRetry={() => void commitsQuery.refetch()}
-                selectedHash={selectedHash}
-                onSelect={setSelectedHash}
-                currentBranch={overview?.repo.currentBranch ?? ''}
-                extra={
-                  <div className="flex min-w-0 items-center gap-2">
-                    <Select
-                      value={branchFilter}
-                      onValueChange={(v) => {
-                        setBranchFilter(v)
-                        setSelectedHash(null)
-                      }}
-                    >
-                      <SelectTrigger
-                        className="h-8 w-[150px] shrink-0 text-[13px]"
-                        aria-label="Filter by branch"
+        <div ref={graphCardRef} className="scroll-mt-20">
+          <Card className="overflow-hidden p-0">
+            <div className="flex flex-col md:flex-row">
+              <div className="min-w-0 flex-1">
+                {/* key={repoId}: fresh mount per repository so placeholder
+                    data from another repo is never shown */}
+                <CommitGraph
+                  key={repoId}
+                  commits={commits}
+                  loading={commitsQuery.isLoading || !commitsMatchRepo}
+                  fetching={commitsQuery.isFetching && commitsMatchRepo}
+                  error={
+                    commitsQuery.error
+                      ? (commitsQuery.error as Error)
+                      : null
+                  }
+                  onRetry={() => void commitsQuery.refetch()}
+                  selectedHash={selectedHash}
+                  onSelect={setSelectedHash}
+                  currentBranch={overview?.repo.currentBranch ?? ''}
+                  extra={
+                    <div className="flex min-w-0 items-center gap-2">
+                      <Select
+                        value={branchFilter}
+                        onValueChange={(v) => {
+                          setBranchFilter(v)
+                          setSelectedHash(null)
+                        }}
                       >
-                        <GitBranch className="mr-1 h-3.5 w-3.5 text-muted-foreground" />
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="slim-scrollbar max-h-[320px]">
-                        <SelectItem value="all">All branches</SelectItem>
-                        {branches
-                          .filter((b) => !b.isRemote)
-                          .map((b) => (
-                            <SelectItem key={b.name} value={b.name}>
-                              {b.name}
-                              {b.current ? ' (HEAD)' : ''}
-                            </SelectItem>
-                          ))}
-                        {branches.some((b) => b.isRemote) && (
-                          <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                            remote-tracking
-                          </div>
-                        )}
-                        {branches
-                          .filter((b) => b.isRemote)
-                          .map((b) => (
-                            <SelectItem key={b.name} value={b.name}>
-                              {b.name}
-                            </SelectItem>
-                          ))}
-                      </SelectContent>
-                    </Select>
-                    <CommitSearch commits={commits} onSelect={setSelectedHash} />
-                  </div>
-                }
+                        <SelectTrigger
+                          className="h-8 w-[150px] shrink-0 text-[13px]"
+                          aria-label="Filter by branch"
+                        >
+                          <GitBranch className="mr-1 h-3.5 w-3.5 text-muted-foreground" />
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="slim-scrollbar max-h-[320px]">
+                          <SelectItem value="all">All branches</SelectItem>
+                          {branches
+                            .filter((b) => !b.isRemote)
+                            .map((b) => (
+                              <SelectItem key={b.name} value={b.name}>
+                                {b.name}
+                                {b.current ? ' (HEAD)' : ''}
+                              </SelectItem>
+                            ))}
+                          {branches.some((b) => b.isRemote) && (
+                            <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                              remote-tracking
+                            </div>
+                          )}
+                          {branches
+                            .filter((b) => b.isRemote)
+                            .map((b) => (
+                              <SelectItem key={b.name} value={b.name}>
+                                {b.name}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                      <CommitSearch commits={commits} onSelect={setSelectedHash} />
+                    </div>
+                  }
+                />
+              </div>
+              <CommitDetailPanel
+                repoId={repoId}
+                hash={selectedHash}
+                onSelect={setSelectedHash}
+                onClose={() => setSelectedHash(null)}
               />
             </div>
-            <CommitDetailPanel
-              repoId={repoId}
-              hash={selectedHash}
-              onSelect={setSelectedHash}
-              onClose={() => setSelectedHash(null)}
-            />
-          </div>
-        </Card>
-
-        {/* ---------------- AI activity strip ---------------- */}
-        {aiCommits.length > 0 && (
-          <Card>
-            <CardContent className="flex flex-wrap items-center gap-x-6 gap-y-3 py-4">
-              <div className="flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-amber-500" />
-                <span className="text-sm font-semibold">AI Coding Activity</span>
-                <span className="text-xs text-muted-foreground">
-                  detected from real trailers
-                </span>
-              </div>
-              <div className="flex min-w-0 flex-1 flex-wrap gap-x-5 gap-y-2">
-                {aiCommits.map((c) => (
-                  <button
-                    key={c.hash}
-                    type="button"
-                    onClick={() => setSelectedHash(c.hash)}
-                    className="group flex min-w-0 items-center gap-2 text-left"
-                  >
-                    <span className="font-mono text-[11px] text-muted-foreground">
-                      {c.shortHash}
-                    </span>
-                    <span className="truncate text-[13px] font-medium group-hover:underline">
-                      {c.message}
-                    </span>
-                    <span className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-1.5 py-px text-[10px] font-medium text-amber-700">
-                      ✦ {c.aiAgent}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </CardContent>
           </Card>
-        )}
+        </div>
+
+        {/* ---------------- ACTIVITY TIMELINE ---------------- */}
+        <ActivityTimeline
+          key={repoId}
+          commits={commits}
+          loading={commitsQuery.isLoading || !commitsMatchRepo}
+          selectedHash={selectedHash}
+          onSelect={selectAndReveal}
+        />
 
         {/* ---------------- integrity ---------------- */}
         <IntegrityCard
           overview={overview}
           commits={commits}
-          fetchMs={commitsData?.fetchMs}
-          loading={commitsQuery.isLoading || overviewQuery.isLoading}
+          fetchMs={commitsMatchRepo ? commitsData?.fetchMs : undefined}
+          loading={commitsQuery.isLoading || !commitsMatchRepo || overviewQuery.isLoading}
         />
       </main>
 

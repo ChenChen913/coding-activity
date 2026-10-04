@@ -431,6 +431,45 @@ export function CommitGraph({
     [zoomAt],
   )
 
+  /* ---------------- keyboard navigation ------------------------------- */
+  /* ArrowUp/ArrowDown move the selection through history (newest first),
+     Escape clears it. The container is focusable, so keyboard users can
+     browse the graph without a mouse. */
+  const onKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (selectedHash) onSelect(null)
+        return
+      }
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+      e.preventDefault()
+      const lay = layoutRef.current
+      if (!lay || lay.nodes.length === 0) return
+      let row = 0
+      if (selectedHash) {
+        const cur = lay.rowOf.get(selectedHash)
+        if (cur !== undefined) row = cur
+      }
+      const next = clamp(
+        row + (e.key === 'ArrowDown' ? 1 : -1),
+        0,
+        lay.nodes.length - 1,
+      )
+      onSelect(lay.nodes[next].commit.hash)
+    },
+    [selectedHash, onSelect],
+  )
+
+  /* ---------------- background click deselect -------------------------- */
+  /* A click that lands on the SVG itself (not a node/edge group) and did
+     not pan clears the selection. */
+  const onBackgroundClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (e.target === e.currentTarget && !didPan.current) onSelect(null)
+    },
+    [onSelect],
+  )
+
   /* ---------------- hover / tooltip ---------------------------------- */
 
   const rowFromClientY = useCallback((clientY: number): number | null => {
@@ -592,13 +631,15 @@ export function CommitGraph({
       <div
         ref={containerRef}
         role="application"
-        aria-label="Commit graph"
-        className="relative h-[440px] touch-none select-none overflow-hidden overscroll-contain md:h-[600px]"
+        aria-label="Commit graph — arrow keys move the selection, Escape clears it"
+        tabIndex={0}
+        className="relative h-[440px] touch-none select-none overflow-hidden overscroll-contain outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 md:h-[600px]"
         style={{ cursor: 'grab' }}
         onPointerDown={onPointerDown}
         onDoubleClick={onDoubleClick}
         onMouseMove={onMouseMove}
         onMouseLeave={onMouseLeave}
+        onKeyDown={onKeyDown}
       >
         {/* ---------- states ---------- */}
         {loading && (
@@ -671,6 +712,7 @@ export function CommitGraph({
               className="absolute inset-y-0 block"
               style={{ left: GUTTER_W, width: laneAreaW, height: '100%' }}
               shapeRendering="geometricPrecision"
+              onClick={onBackgroundClick}
             >
               {/* hovered row background */}
               {hoveredRow !== null && (
