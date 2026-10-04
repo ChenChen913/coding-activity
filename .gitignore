@@ -56,3 +56,6 @@ server.log
 # AI Coding Activity: local git repositories used as real data sources
 # (each subdirectory is an independent git repo, never committed into self)
 /repos/
+# local artifacts
+db/*.db
+tool-results/
