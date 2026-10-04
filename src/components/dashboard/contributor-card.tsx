@@ -12,7 +12,14 @@
 import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { format } from 'date-fns'
-import { ChevronDown, Clock, Mail, Sparkles, Users } from 'lucide-react'
+import {
+  ChevronDown,
+  Clock,
+  Github,
+  Mail,
+  Sparkles,
+  Users,
+} from 'lucide-react'
 
 import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -22,6 +29,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import type { GitContributor } from '@/lib/git/types'
+import { githubProfileFromEmail } from '@/lib/github'
 
 const TOP_N = 8
 
@@ -166,8 +174,9 @@ export function ContributorCard({
                 const active = activeAuthorKey === key
                 const pct = Math.max(2, Math.round((c.commitCount / maxCount) * 100))
                 const range = activityRange(c)
+                const profile = githubProfileFromEmail(c.email)
                 return (
-                  <li key={key}>
+                  <li key={key} className="relative">
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <button
@@ -178,7 +187,7 @@ export function ContributorCard({
                             active
                               ? 'bg-accent ring-1 ring-foreground/15'
                               : 'hover:bg-muted/60'
-                          }`}
+                          } ${profile ? 'pr-8' : ''}`}
                         >
                       <span className="w-4 shrink-0 text-right font-mono text-[10px] tabular-nums text-muted-foreground/70">
                         {i + 1}
@@ -244,6 +253,12 @@ export function ContributorCard({
                             <span className="truncate">{c.email}</span>
                           </div>
                         )}
+                        {profile && (
+                          <div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                            <Github className="h-3 w-3 shrink-0" />
+                            <span className="truncate">GitHub · {profile.username}</span>
+                          </div>
+                        )}
                         <div className="mt-1.5 flex items-center gap-3 text-[10px] tabular-nums text-muted-foreground">
                           <span className="font-medium text-foreground">
                             {c.commitCount.toLocaleString()} commits
@@ -266,6 +281,21 @@ export function ContributorCard({
                         </div>
                       </TooltipContent>
                     </Tooltip>
+                    {/* GitHub profile — derived from the real noreply email,
+                        absolutely positioned so it never nests interactive
+                        elements inside the row button */}
+                    {profile && (
+                      <a
+                        href={profile.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        aria-label={`GitHub profile of ${profile.username}`}
+                        title={`GitHub · ${profile.username}`}
+                        className="absolute right-1.5 top-1/2 z-[1] flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground/50 transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
+                      >
+                        <Github className="h-3.5 w-3.5" />
+                      </a>
+                    )}
                   </li>
                 )
               })}

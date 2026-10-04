@@ -1,13 +1,15 @@
 'use client'
 
 /**
- * AI Coding Activity — Phase 4 · Activity Timeline
+ * AI Coding Activity — Phase 4/7 · Activity Timeline
  *
- * Every commit becomes an activity on a unified timeline. Activities are
- * derived client-side from the already-fetched commit list, so the timeline
- * covers 100% of the repository history — no sampling, no fabrication.
- * AI activities are marked only when a real trailer (Co-Authored-By: …,
- * Generated with …) exists on the commit.
+ * Every commit becomes an activity on a unified timeline; every real git
+ * tag becomes a release activity. Activities are derived client-side from
+ * the already-fetched commit list + tags list, so the timeline covers 100%
+ * of the repository history — no sampling, no fabrication. AI activities
+ * are marked only when a real trailer (Co-Authored-By: …, Generated with …)
+ * exists on the commit. Live GitHub events (push / PR / release) join from
+ * the public events API when it is reachable — never synthesized.
  */
 
 import { useMemo, useState } from 'react'
@@ -19,13 +21,21 @@ import {
   GitMerge,
   History,
   Loader2,
+  Radio,
   Sparkles,
+  Tag as TagIcon,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import type { GraphCommit, TimelineActivity } from '@/lib/git/types'
+import type {
+  GithubEventActivity,
+  GithubEventsResult,
+  GitTag,
+  GraphCommit,
+  TimelineActivity,
+} from '@/lib/git/types'
 
 /* ------------------------------------------------------------------ */
 /*  helpers                                                            */
@@ -33,7 +43,7 @@ import type { GraphCommit, TimelineActivity } from '@/lib/git/types'
 
 const PAGE_SIZE = 80
 
-type TypeFilter = 'all' | 'commits' | 'merges' | 'ai'
+type TypeFilter = 'all' | 'commits' | 'merges' | 'releases' | 'ai'
 
 interface ActivityGroup {
   key: string
@@ -46,6 +56,7 @@ interface YearBucket {
   year: number
   total: number
   ai: number
+  releases: number
 }
 
 /** compact relative time — honest math, no rounding tricks */
@@ -63,7 +74,7 @@ function relativeTime(iso: string, now: number): string {
   return `${Math.floor(mo / 12)}y ago`
 }
 
-function deriveActivities(commits: GraphCommit[]): TimelineActivity[] {
+function deriveCommitActivities(commits: GraphCommit[]): TimelineActivity[] {
   return commits.map((c) => ({
     id: c.hash,
     type: c.aiAgent ? 'ai' : 'commit',
@@ -77,12 +88,68 @@ function deriveActivities(commits: GraphCommit[]): TimelineActivity[] {
   }))
 }
 
+/** tags whose target commit is part of the current view — the timeline
+ *  always reflects exactly what the viewer is looking at */
+function deriveReleaseActivities(
+  tags: GitTag[],
+  viewHashes: Set<string>,
+): TimelineActivity[] {
+  return tags
+    .filter((t) => viewHashes.has(t.commitHash))
+    .map((t) => ({
+      id: `tag:${t.name}`,
+      type: 'release' as const,
+      timestamp: t.taggedAt,
+      title: `Release ${t.name}`,
+      commitHash: t.commitHash,
+      shortHash: t.commitHash.slice(0, 7),
+      author: t.tagger ?? 'lightweight tag',
+      isMerge: false,
+      release: {
+        name: t.name,
+        isAnnotated: t.isAnnotated,
+        dateSource: t.dateSource,
+        tagger: t.tagger,
+        message: t.message,
+      },
+    }))
+}
+
+/** honest reason text for the unavailable GitHub feed */
+function eventsReasonText(reason: string): string {
+  switch (reason) {
+    case 'rate-limited':
+      return 'GitHub API rate limit exceeded'
+    case 'network':
+      return 'GitHub API unreachable'
+    case 'no-github-remote':
+      return 'no GitHub remote on this repository'
+    default:
+      return reason
+  }
+}
+
+const EVENT_KIND_COLOR: Record<string, string> = {
+  push: 'bg-emerald-500',
+  release: 'bg-rose-500',
+  pr: 'bg-fuchsia-500',
+  issue: 'bg-orange-500',
+  star: 'bg-amber-500',
+  fork: 'bg-purple-500',
+  branch: 'bg-teal-600',
+  other: 'bg-foreground/30',
+}
+
 /* ------------------------------------------------------------------ */
 /*  props                                                              */
 /* ------------------------------------------------------------------ */
 
 export interface ActivityTimelineProps {
   commits: GraphCommit[]
+  /** real git tags of the repository (releases) */
+  tags: GitTag[]
+  /** live GitHub public events, null while loading */
+  githubEvents: GithubEventsResult | null
   loading: boolean
   selectedHash: string | null
   /** select a commit — the graph centers on it and the page scrolls up */
@@ -93,8 +160,12 @@ export interface ActivityTimelineProps {
 /*  component                                                          */
 /* ------------------------------------------------------------------ */
 
+const LIVE_EVENTS_SHOWN = 6
+
 export function ActivityTimeline({
   commits,
+  tags,
+  githubEvents,
   loading,
   selectedHash,
   onSelect,
@@ -103,25 +174,47 @@ export function ActivityTimeline({
   const [yearFilter, setYearFilter] = useState<number | null>(null)
   const [extra, setExtra] = useState(0)
 
+  /* ---- hash set of the current view (branch/author filtered) ---- */
+  const viewHashes = useMemo(
+    () => new Set(commits.map((c) => c.hash)),
+    [commits],
+  )
+
   /* ---- derive the full activity stream (memoized, all commits) ---- */
-  const activities = useMemo(() => deriveActivities(commits), [commits])
+  const activities = useMemo(() => {
+    const stream = [
+      ...deriveCommitActivities(commits),
+      ...deriveReleaseActivities(tags, viewHashes),
+    ]
+    // newest first
+    stream.sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+    return stream
+  }, [commits, tags, viewHashes])
 
   const stats = useMemo(() => {
     let ai = 0
     let merges = 0
+    let releases = 0
     const years = new Map<number, YearBucket>()
     let firstTs: string | null = null
     let lastTs: string | null = null
     for (const a of activities) {
       if (a.aiAgent) ai += 1
       if (a.isMerge) merges += 1
+      if (a.release) releases += 1
       const y = new Date(a.timestamp).getFullYear()
       const b = years.get(y)
       if (b) {
         b.total += 1
         if (a.aiAgent) b.ai += 1
+        if (a.release) b.releases += 1
       } else {
-        years.set(y, { year: y, total: 1, ai: a.aiAgent ? 1 : 0 })
+        years.set(y, {
+          year: y,
+          total: 1,
+          ai: a.aiAgent ? 1 : 0,
+          releases: a.release ? 1 : 0,
+        })
       }
       if (!firstTs || a.timestamp < firstTs) firstTs = a.timestamp
       if (!lastTs || a.timestamp > lastTs) lastTs = a.timestamp
@@ -130,7 +223,8 @@ export function ActivityTimeline({
       total: activities.length,
       ai,
       merges,
-      commitsOnly: activities.length - merges,
+      releases,
+      commitsOnly: activities.length - merges - releases,
       yearBuckets: [...years.values()].sort((a, b) => a.year - b.year),
       firstTs,
       lastTs,
@@ -140,8 +234,9 @@ export function ActivityTimeline({
   /* ---- filter pipeline ---- */
   const filtered = useMemo(() => {
     return activities.filter((a) => {
-      if (typeFilter === 'commits' && a.isMerge) return false
+      if (typeFilter === 'commits' && (a.isMerge || a.release)) return false
       if (typeFilter === 'merges' && !a.isMerge) return false
+      if (typeFilter === 'releases' && !a.release) return false
       if (typeFilter === 'ai' && !a.aiAgent) return false
       if (yearFilter !== null && new Date(a.timestamp).getFullYear() !== yearFilter)
         return false
@@ -185,8 +280,21 @@ export function ActivityTimeline({
     { key: 'all', label: 'All', count: stats.total },
     { key: 'commits', label: 'Commits', count: stats.commitsOnly, dot: 'bg-emerald-500' },
     { key: 'merges', label: 'Merges', count: stats.merges, dot: 'bg-teal-500' },
+    ...(stats.releases > 0
+      ? [
+          {
+            key: 'releases' as const,
+            label: 'Releases',
+            count: stats.releases,
+            dot: 'bg-rose-500',
+          },
+        ]
+      : []),
     { key: 'ai', label: 'AI', count: stats.ai, dot: 'bg-amber-500' },
   ]
+
+  const liveEvents: GithubEventActivity[] =
+    githubEvents?.available === true ? githubEvents.events : []
 
   /* ---- render ---- */
 
@@ -201,7 +309,7 @@ export function ActivityTimeline({
           <div>
             <div className="text-sm font-semibold leading-tight">Activity Timeline</div>
             <div className="text-[11px] text-muted-foreground">
-              every commit as an activity, grouped by month
+              every commit and release as an activity, grouped by month
             </div>
           </div>
         </div>
@@ -220,6 +328,15 @@ export function ActivityTimeline({
             </span>
             <span className="text-border">·</span>
             <span>{stats.total.toLocaleString()} activities</span>
+            {stats.releases > 0 && (
+              <>
+                <span className="text-border">·</span>
+                <span className="inline-flex items-center gap-1 font-medium text-rose-600 dark:text-rose-400">
+                  <TagIcon className="h-3 w-3" />
+                  {stats.releases} releases
+                </span>
+              </>
+            )}
             {stats.ai > 0 && (
               <>
                 <span className="text-border">·</span>
@@ -242,16 +359,18 @@ export function ActivityTimeline({
             aria-label="Activities per year — click a bar to focus that year"
           >
             {stats.yearBuckets.map((b) => {
-              const h = Math.max(3, Math.round((b.total / maxYearTotal) * 48))
+              const h = Math.max(3, Math.round((b.total / maxYearTotal) * 44))
               const active = yearFilter === b.year
               return (
                 <button
                   key={b.year}
                   type="button"
                   title={`${b.year} · ${b.total.toLocaleString()} commits${
-                    b.ai > 0 ? ` · ${b.ai} AI` : ''
-                  }`}
-                  aria-label={`Focus year ${b.year}: ${b.total} commits${b.ai > 0 ? `, ${b.ai} AI` : ''}`}
+                    b.releases > 0 ? ` · ${b.releases} releases` : ''
+                  }${b.ai > 0 ? ` · ${b.ai} AI` : ''}`}
+                  aria-label={`Focus year ${b.year}: ${b.total} commits${
+                    b.releases > 0 ? `, ${b.releases} releases` : ''
+                  }${b.ai > 0 ? `, ${b.ai} AI` : ''}`}
                   aria-pressed={active}
                   onClick={() => {
                     setYearFilter(active ? null : b.year)
@@ -259,8 +378,15 @@ export function ActivityTimeline({
                   }}
                   className="group relative flex min-w-[16px] flex-1 shrink-0 cursor-pointer flex-col items-center justify-end gap-[3px] outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
                 >
-                  {/* AI marker rides directly above the bar in flow layout —
-                      always anchored to the bar top, whatever its height */}
+                  {/* release + AI markers ride directly above the bar in flow
+                      layout — always anchored to the bar top, whatever its
+                      height */}
+                  {b.releases > 0 && (
+                    <span
+                      className="h-1.5 w-1.5 shrink-0 rounded-[2px] bg-rose-500 ring-2 ring-rose-200 dark:ring-rose-400/40"
+                      aria-hidden
+                    />
+                  )}
                   {b.ai > 0 && (
                     <span
                       className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500 ring-2 ring-amber-200 dark:ring-amber-400/40"
@@ -349,6 +475,90 @@ export function ActivityTimeline({
         </div>
       )}
 
+      {/* ---------- GitHub live events (real public feed) ---------- */}
+      {liveEvents.length > 0 && (
+        <div className="border-t px-4 py-3 sm:px-5">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-foreground/80">
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+              </span>
+              GitHub · live
+            </span>
+            <span className="text-[10px] text-muted-foreground">
+              real public events from the GitHub API · last ~90 days
+            </span>
+          </div>
+          <ul className="mt-2 space-y-1">
+            {liveEvents.slice(0, LIVE_EVENTS_SHOWN).map((ev) => {
+              const inGraph = ev.headHash ? viewHashes.has(ev.headHash) : false
+              return (
+                <li key={ev.id} className="flex items-center gap-2 text-[11.5px]">
+                  <span
+                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                      EVENT_KIND_COLOR[ev.kind] ?? EVENT_KIND_COLOR.other
+                    }`}
+                    aria-hidden
+                  />
+                  <span className="min-w-0 flex-1 truncate">
+                    <span className="font-medium">{ev.actor}</span>{' '}
+                    <span className="text-muted-foreground">{ev.title}</span>
+                    {ev.detail && (
+                      <span className="text-muted-foreground/70"> — {ev.detail}</span>
+                    )}
+                  </span>
+                  {inGraph && (
+                    <button
+                      type="button"
+                      onClick={() => onSelect(ev.headHash as string)}
+                      title="Show the pushed head commit in the graph"
+                      className="shrink-0 rounded-full border px-2 py-px text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                    >
+                      view in graph
+                    </button>
+                  )}
+                  {ev.url && (
+                    <a
+                      href={ev.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label="Open this event on GitHub"
+                      title="Open on GitHub"
+                      className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="h-3 w-3"
+                        aria-hidden
+                      >
+                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                        <polyline points="15 3 21 3 21 9" />
+                        <line x1="10" y1="14" x2="21" y2="3" />
+                      </svg>
+                    </a>
+                  )}
+                  <span className="w-14 shrink-0 text-right tabular-nums text-muted-foreground">
+                    {relativeTime(ev.timestamp, now)}
+                  </span>
+                </li>
+              )
+            })}
+          </ul>
+          {liveEvents.length > LIVE_EVENTS_SHOWN && (
+            <div className="mt-1.5 text-[10px] text-muted-foreground">
+              +{(liveEvents.length - LIVE_EVENTS_SHOWN).toLocaleString()} more events
+              in the last 90 days
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ---------- list ---------- */}
       <div className="border-t">
         {loading ? (
@@ -390,9 +600,10 @@ export function ActivityTimeline({
                   </span>
                 </div>
                 <ul className="px-4 py-1.5 sm:px-5">
-                  {g.activities.map((a, i) => {
+                  {g.activities.map((a) => {
                     const isSelected = a.commitHash === selectedHash
                     const isAi = Boolean(a.aiAgent)
+                    const isRelease = Boolean(a.release)
                     return (
                       <li key={a.id} className="relative flex">
                         {/* rail */}
@@ -401,7 +612,16 @@ export function ActivityTimeline({
                           className="absolute bottom-0 left-[11px] top-0 w-px bg-border"
                         />
                         <div className="relative z-[1] mr-3 flex h-9 items-center">
-                          {isAi ? (
+                          {isRelease ? (
+                            <motion.span
+                              initial={{ scale: 0, opacity: 0 }}
+                              animate={{ scale: 1, opacity: 1 }}
+                              transition={{ duration: 0.25, ease: 'easeOut' }}
+                              className="flex h-[22px] w-[22px] items-center justify-center rounded-full border border-rose-300 bg-rose-50 shadow-sm dark:border-rose-400/40 dark:bg-rose-400/15"
+                            >
+                              <TagIcon className="h-3 w-3 text-rose-600 dark:text-rose-400" />
+                            </motion.span>
+                          ) : isAi ? (
                             <motion.span
                               initial={{ scale: 0, opacity: 0 }}
                               animate={{ scale: 1, opacity: 1 }}
@@ -433,7 +653,19 @@ export function ActivityTimeline({
                         <button
                           type="button"
                           onClick={() => a.commitHash && onSelect(a.commitHash)}
-                          title={format(new Date(a.timestamp), 'yyyy-MM-dd HH:mm:ss')}
+                          title={
+                            isRelease && a.release
+                              ? a.release.isAnnotated
+                                ? `annotated tag by ${a.release.tagger ?? 'unknown'} · ${format(
+                                    new Date(a.timestamp),
+                                    'yyyy-MM-dd HH:mm:ss',
+                                  )}`
+                                : `lightweight tag · dated by its target commit (no tagger date exists) · ${format(
+                                    new Date(a.timestamp),
+                                    'yyyy-MM-dd HH:mm:ss',
+                                  )}`
+                              : format(new Date(a.timestamp), 'yyyy-MM-dd HH:mm:ss')
+                          }
                           className={`group -my-0.5 flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/60 ${
                             isSelected
                               ? 'bg-accent ring-1 ring-foreground/15'
@@ -452,6 +684,11 @@ export function ActivityTimeline({
                               {isAi && (
                                 <span className="inline-flex shrink-0 items-center rounded-full border border-amber-200 bg-amber-50 px-1.5 py-px text-[10px] font-medium text-amber-700 dark:border-amber-400/40 dark:bg-amber-400/15 dark:text-amber-300">
                                   ✦ {a.aiAgent}
+                                </span>
+                              )}
+                              {isRelease && (
+                                <span className="inline-flex shrink-0 items-center rounded-full border border-rose-200 bg-rose-50 px-1.5 py-px text-[9px] font-medium uppercase tracking-wide text-rose-600 dark:border-rose-400/40 dark:bg-rose-400/15 dark:text-rose-300">
+                                  {a.release.isAnnotated ? 'annotated' : 'lightweight'}
                                 </span>
                               )}
                             </span>
@@ -488,10 +725,21 @@ export function ActivityTimeline({
 
             {/* provenance note */}
             <div className="border-t px-4 py-3 text-[10.5px] leading-relaxed text-muted-foreground sm:px-5">
-              Activities are derived from the full commit history — nothing sampled or
-              fabricated. AI-assisted marks come from real commit trailers
-              (Co-Authored-By / Generated with …). Push, CI and deploy events will join
-              this timeline with GitHub integration.
+              Activities are derived from the full commit history and the
+              repository&apos;s real git tags — nothing sampled or fabricated.
+              AI-assisted marks come from real commit trailers (Co-Authored-By /
+              Generated with …); lightweight tags are dated by their target
+              commit (annotated tags carry their own tagger date).
+              {githubEvents && (
+                <span className="mt-1 flex items-center gap-1.5">
+                  <Radio className="h-3 w-3 shrink-0" />
+                  {githubEvents.available
+                    ? `GitHub live events: ${githubEvents.events.length.toLocaleString()} real public events joined this feed.`
+                    : `GitHub live events: unavailable — ${eventsReasonText(
+                        githubEvents.reason ?? 'unknown',
+                      )}. Live push / PR / release events will appear here when reachable; nothing is synthesized meanwhile.`}
+                </span>
+              )}
             </div>
           </div>
         )}

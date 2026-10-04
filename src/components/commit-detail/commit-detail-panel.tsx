@@ -7,10 +7,12 @@ import { format, formatDistanceToNowStrict } from 'date-fns'
 import {
   Check,
   Copy,
+  ExternalLink,
   FileDiff,
   GitBranch,
   GitMerge,
   GitCommitHorizontal,
+  Github,
   Loader2,
   Sparkles,
   X,
@@ -18,7 +20,12 @@ import {
 
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import type { CommitDetailResponse } from '@/lib/git/types'
+import type { CommitDetailResponse, GitRemoteInfo } from '@/lib/git/types'
+import {
+  githubCommitUrl,
+  githubProfileFromEmail,
+  githubTreeUrl,
+} from '@/lib/github'
 import { ChangedFiles } from './changed-files'
 
 export interface CommitDetailPanelProps {
@@ -26,6 +33,8 @@ export interface CommitDetailPanelProps {
   hash: string | null
   onSelect: (hash: string) => void
   onClose: () => void
+  /** origin remote — GitHub deep links are derived from it (hidden when absent) */
+  githubRemote?: GitRemoteInfo | null
 }
 
 async function fetchDetail(
@@ -64,6 +73,7 @@ export function CommitDetailPanel({
   hash,
   onSelect,
   onClose,
+  githubRemote,
 }: CommitDetailPanelProps) {
   const [copied, setCopied] = useState(false)
 
@@ -116,15 +126,29 @@ export function CommitDetailPanel({
             </span>
           )}
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-6 w-6"
-          aria-label="Close details"
-          onClick={onClose}
-        >
-          <X className="h-3.5 w-3.5" />
-        </Button>
+        <div className="flex items-center gap-1">
+          {c && githubCommitUrl(githubRemote, c.hash) && (
+            <a
+              href={githubCommitUrl(githubRemote, c.hash) as string}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="View this commit on GitHub"
+              aria-label="View this commit on GitHub"
+              className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              <Github className="h-3.5 w-3.5" />
+            </a>
+          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            aria-label="Close details"
+            onClick={onClose}
+          >
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        </div>
       </div>
 
       {/* body */}
@@ -202,13 +226,42 @@ export function CommitDetailPanel({
                       <Copy className="h-3 w-3" />
                     )}
                   </Button>
+                  {githubCommitUrl(githubRemote, c.hash) && (
+                    <a
+                      href={githubCommitUrl(githubRemote, c.hash) as string}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="View this commit on GitHub"
+                      aria-label="View this commit on GitHub"
+                      className="inline-flex h-5 w-5 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  )}
                 </div>
               </MetaRow>
 
               <MetaRow label="Author">
                 <div className="leading-tight">
-                  <div className="font-medium">{c.author}</div>
-                  <div className="text-xs text-muted-foreground">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-medium">{c.author}</span>
+                    {(() => {
+                      const profile = githubProfileFromEmail(c.authorEmail)
+                      return profile ? (
+                        <a
+                          href={profile.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title={`GitHub · ${profile.username}`}
+                          aria-label={`GitHub profile of ${profile.username}`}
+                          className="inline-flex h-4 w-4 items-center justify-center rounded text-muted-foreground/70 transition-colors hover:text-foreground"
+                        >
+                          <Github className="h-3 w-3" />
+                        </a>
+                      ) : null
+                    })()}
+                  </div>
+                  <div className="break-all text-xs text-muted-foreground">
                     {c.authorEmail}
                   </div>
                 </div>
@@ -264,18 +317,31 @@ export function CommitDetailPanel({
                   {c.branches.length === 0 ? (
                     <span className="text-xs text-muted-foreground">none</span>
                   ) : (
-                    c.branches.slice(0, 8).map((b) => (
-                      <span
-                        key={b}
-                        className={`rounded-full border px-1.5 py-px text-[10px] ${
-                          b.includes('/')
-                            ? 'border-border text-muted-foreground'
-                            : 'border-teal-600/30 bg-teal-600/10 font-medium text-teal-700 dark:border-teal-400/40 dark:bg-teal-400/15 dark:text-teal-300'
-                        }`}
-                      >
-                        {b}
-                      </span>
-                    ))
+                    c.branches.slice(0, 8).map((b) => {
+                      const treeUrl = githubTreeUrl(githubRemote, b)
+                      const chipBase = `inline-flex max-w-full items-center rounded-full border px-1.5 py-px text-[10px] transition-colors ${
+                        b.includes('/')
+                          ? 'border-border text-muted-foreground hover:border-foreground/25 hover:text-foreground'
+                          : 'border-teal-600/30 bg-teal-600/10 font-medium text-teal-700 hover:border-teal-600/60 dark:border-teal-400/40 dark:bg-teal-400/15 dark:text-teal-300 dark:hover:border-teal-400/70'
+                      }`
+                      return treeUrl ? (
+                        <a
+                          key={b}
+                          href={treeUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title={`View ${b} on GitHub`}
+                          className={chipBase}
+                        >
+                          <span className="max-w-[220px] truncate">{b}</span>
+                          <ExternalLink className="ml-0.5 h-2.5 w-2.5 shrink-0 opacity-60" />
+                        </a>
+                      ) : (
+                        <span key={b} className={chipBase}>
+                          <span className="max-w-[220px] truncate">{b}</span>
+                        </span>
+                      )
+                    })
                   )}
                   {c.branches.length > 8 && (
                     <span className="text-[10px] text-muted-foreground">

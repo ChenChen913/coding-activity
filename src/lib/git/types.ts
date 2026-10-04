@@ -130,6 +130,7 @@ export type ActivityType =
   | 'human'
   | 'commit'
   | 'push'
+  | 'release'
   | 'github'
   | 'ci'
   | 'deploy'
@@ -158,6 +159,79 @@ export interface TimelineActivity extends Activity {
   shortHash: string
   author: string
   isMerge: boolean
+  /** present when this activity is a real git tag (release) */
+  release?: TimelineRelease
+}
+
+/** Real tag data attached to a timeline activity. */
+export interface TimelineRelease {
+  name: string
+  isAnnotated: boolean
+  /** where the activity date came from — honest provenance */
+  dateSource: 'tagger' | 'commit'
+  tagger?: string
+  message?: string
+}
+
+/** A real git tag — every field comes from `git for-each-ref refs/tags`. */
+export interface GitTag {
+  name: string
+  /** commit the tag points at (peeled for annotated tags) */
+  commitHash: string
+  isAnnotated: boolean
+  /** tagger identity — only exists on annotated tags (real data) */
+  tagger?: string
+  taggerEmail?: string
+  /** ISO 8601 — tagger date for annotated tags, commit date for lightweight */
+  taggedAt: string
+  /** honest provenance for taggedAt */
+  dateSource: 'tagger' | 'commit'
+  /** tag message subject (annotated) or the target commit subject (lightweight) */
+  message?: string
+}
+
+export interface TagsResponse {
+  repoId: string
+  total: number
+  fetchMs: number
+  tags: GitTag[]
+}
+
+/* ------------------------------------------------------------------ */
+/*  GitHub public events (live activity beyond the local git data)     */
+/* ------------------------------------------------------------------ */
+
+export type GithubEventKind =
+  | 'push'
+  | 'release'
+  | 'pr'
+  | 'issue'
+  | 'star'
+  | 'fork'
+  | 'branch'
+  | 'other'
+
+/** One event from the GitHub public events API — real, never fabricated. */
+export interface GithubEventActivity {
+  id: string
+  kind: GithubEventKind
+  /** ISO 8601 created_at */
+  timestamp: string
+  title: string
+  actor: string
+  detail?: string
+  /** head commit of a push — links the event into the local graph */
+  headHash?: string
+  url?: string
+}
+
+export interface GithubEventsResult {
+  repoId: string
+  available: boolean
+  /** honest reason when unavailable */
+  reason?: 'no-github-remote' | 'rate-limited' | 'network' | `http-${number}`
+  fetchedAt: string
+  events: GithubEventActivity[]
 }
 
 /** Server-side integrity report — proves every commit was fetched. */

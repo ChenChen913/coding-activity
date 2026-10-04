@@ -20,11 +20,14 @@ import {
   Activity as ActivityIcon,
   AlertTriangle,
   Database,
+  ExternalLink,
   GitBranch,
   GitMerge,
+  Github,
   Loader2,
   RefreshCw,
   Sparkles,
+  Tag,
   UserRound,
   Users,
   X,
@@ -54,8 +57,10 @@ import { ScrollTop } from '@/components/scroll-top'
 import { useClock } from '@/hooks/use-clock'
 import type {
   CommitsResponse,
+  GithubEventsResult,
   GraphCommit,
   RepoOverview,
+  TagsResponse,
 } from '@/lib/git/types'
 
 interface RepoListItem {
@@ -125,9 +130,28 @@ export default function Home() {
     placeholderData: keepPreviousData,
   })
 
+  /** real git tags — every release the repository ever cut */
+  const tagsQuery = useQuery({
+    queryKey: ['git', 'tags', repoId],
+    queryFn: () => fetchJson<TagsResponse>(`/api/git/tags?repo=${repoId}`),
+    enabled: Boolean(repoId),
+  })
+
+  /** live GitHub public events — honest degradation when unreachable */
+  const githubEventsQuery = useQuery({
+    queryKey: ['git', 'github-events', repoId],
+    queryFn: () =>
+      fetchJson<GithubEventsResult>(`/api/git/github-events?repo=${repoId}`),
+    enabled: Boolean(repoId),
+    refetchInterval: 5 * 60_000,
+    retry: 1,
+  })
+
   const repos = reposQuery.data?.repos.filter((r) => r.available) ?? []
   const overview = overviewQuery.data
   const commitsData = commitsQuery.data
+  const tagsData = tagsQuery.data
+  const githubEventsData = githubEventsQuery.data
 
   /** placeholder-data guard: while switching repositories the query keeps
       serving the previous repo's commits (keepPreviousData) — only render
@@ -135,6 +159,10 @@ export default function Home() {
       within the same repo keep the old graph visible (no blank window). */
   const commitsMatchRepo = commitsData?.repoId === repoId
   const commits = commitsMatchRepo ? (commitsData?.commits ?? []) : []
+
+  /** same cross-repo guard for tags + github events */
+  const tags = tagsData?.repoId === repoId ? (tagsData?.tags ?? []) : []
+  const githubEvents = githubEventsData?.repoId === repoId ? githubEventsData : null
 
   const branches = overview?.branches ?? []
 
@@ -162,7 +190,10 @@ export default function Home() {
   }
 
   const reloading =
-    overviewQuery.isFetching || commitsQuery.isFetching || reposQuery.isFetching
+    overviewQuery.isFetching ||
+    commitsQuery.isFetching ||
+    reposQuery.isFetching ||
+    tagsQuery.isFetching
   const loadError = overviewQuery.error
 
   return (
@@ -241,6 +272,12 @@ export default function Home() {
                   <Users className="h-3 w-3" />
                   {overview.repo.contributorCount.toLocaleString()} contributors
                 </span>
+                {tags.length > 0 && (
+                  <span className="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400">
+                    <Tag className="h-3 w-3" />
+                    {tags.length.toLocaleString()} releases
+                  </span>
+                )}
                 {overview.repo.aiCommitCount > 0 && (
                   <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
                     <Sparkles className="h-3 w-3" />
@@ -257,9 +294,24 @@ export default function Home() {
             </div>
           )}
 
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+            {overview?.repo.remote?.githubUrl && (
+              <Button variant="outline" size="sm" className="h-8" asChild>
+                <a
+                  href={overview.repo.remote.githubUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={overview.repo.remote.githubUrl}
+                  aria-label="Open repository on GitHub"
+                >
+                  <Github className="h-3.5 w-3.5 sm:mr-1.5" />
+                  <span className="hidden sm:inline">Open on GitHub</span>
+                  <ExternalLink className="ml-1 hidden h-3 w-3 text-muted-foreground sm:inline" />
+                </a>
+              </Button>
+            )}
             <Select value={repoId} onValueChange={switchingRepo}>
-              <SelectTrigger className="h-8 w-[210px] text-[13px]" aria-label="Switch repository">
+              <SelectTrigger className="h-8 w-[170px] text-[13px] sm:w-[210px]" aria-label="Switch repository">
                 <SelectValue placeholder="Repository" />
               </SelectTrigger>
               <SelectContent>
@@ -281,6 +333,8 @@ export default function Home() {
                 void overviewQuery.refetch()
                 void commitsQuery.refetch()
                 void reposQuery.refetch()
+                void tagsQuery.refetch()
+                void githubEventsQuery.refetch()
               }}
               disabled={reloading}
             >
@@ -406,6 +460,7 @@ export default function Home() {
                 hash={selectedHash}
                 onSelect={setSelectedHash}
                 onClose={() => setSelectedHash(null)}
+                githubRemote={overview?.repo.remote ?? null}
               />
             </div>
           </Card>
@@ -451,6 +506,8 @@ export default function Home() {
           <ActivityTimeline
             key={repoId}
             commits={commits}
+            tags={tags}
+            githubEvents={githubEvents}
             loading={commitsQuery.isLoading || !commitsMatchRepo}
             selectedHash={selectedHash}
             onSelect={selectAndReveal}

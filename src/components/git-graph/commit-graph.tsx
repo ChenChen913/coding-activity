@@ -889,9 +889,9 @@ export function CommitGraph({
                     onClick={() => selectCommit(c.hash)}
                     onMouseEnter={() => setHoveredRow(nd.row)}
                   >
-                    <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                    <span className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
                       <span
-                        className={`truncate text-[13px] ${
+                        className={`min-w-[48px] truncate text-[13px] ${
                           isSelected ? 'font-semibold' : 'font-medium'
                         }`}
                       >
@@ -903,7 +903,7 @@ export function CommitGraph({
                         return (
                           <span
                             key={b}
-                            className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-px text-[10px] leading-4 ${
+                            className={`inline-flex min-w-0 max-w-[60%] shrink items-center gap-1 overflow-hidden rounded-full border px-1.5 py-px text-[10px] leading-4 ${
                               isCurrent
                                 ? 'border-transparent font-semibold text-white'
                                 : isRemote
@@ -921,11 +921,11 @@ export function CommitGraph({
                           >
                             {isCurrent && (
                               <span
-                                className="h-1 w-1 rounded-full bg-white"
+                                className="h-1 w-1 shrink-0 rounded-full bg-white"
                                 aria-hidden
                               />
                             )}
-                            {b}
+                            <span className="truncate">{b}</span>
                           </span>
                         )
                       })}

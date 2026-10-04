@@ -28,7 +28,8 @@ function parseGithubRemote(url: string): {
   }
 }
 
-async function getRemote(repoPath: string): Promise<GitRemoteInfo | undefined> {
+/** Origin remote of a repository (GitHub URL parsed when present). */
+export async function getRemote(repoPath: string): Promise<GitRemoteInfo | undefined> {
   try {
     const url = (await git(['remote', 'get-url', 'origin'], repoPath, 5_000))
       .trim()
