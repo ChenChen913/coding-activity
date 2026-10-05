@@ -64,12 +64,13 @@ const AXIS_H = 26
 /** horizontal layout: width of the viewport-fixed lane-label gutter
  *  (branch tips), carved out of the left edge — narrower on phones */
 const labelWOf = (w: number) => (w < 640 ? 76 : 112)
-/** horizontal layout: rows of commit-info chips in the bottom rail */
-const railRowsOf = (w: number) => (w < 640 ? 1 : 2)
+/** horizontal layout: rows of commit-info chips in the bottom rail
+ *  (3 staggered rows on desktop so badge+message fits at default zoom) */
+const railRowsOf = (w: number) => (w < 640 ? 1 : 3)
 /** horizontal layout: height of the bottom commit-info rail — the
- *  counterpart of the vertical message list (a tick for EVERY visible
+ *  counterpart of the vertical message list (a chip for EVERY visible
  *  commit + type/message chips wherever they fit, always on screen) */
-const railHOf = (w: number) => (railRowsOf(w) === 1 ? 48 : 76)
+const railHOf = (w: number) => (railRowsOf(w) === 1 ? 48 : 104)
 
 export type Orientation = 'vertical' | 'horizontal'
 
@@ -1381,9 +1382,11 @@ export function CommitGraph({
                     const isHovered = hoveredRow === nd.row
                     const type = typeOf.get(c.hash)
                     const tColor = type ? TYPE_META[type].color : laneColor(nd.lane)
-                    const chipH = railRows === 1 ? railH - 12 : (railH - 14) / 2
-                    const top =
-                      railRows === 1 ? 6 : 6 + (nd.row % railRows) * (chipH + 2)
+                    const chipH =
+                      railRows === 1
+                        ? railH - 10
+                        : (railH - 10 - (railRows - 1) * 2) / railRows
+                    const top = 5 + (nd.row % railRows) * (chipH + 2)
                     const stateCls = `${
                       isSelected
                         ? 'bg-accent ring-1 ring-inset ring-border'
@@ -1438,7 +1441,7 @@ export function CommitGraph({
                       )
                     }
                     const w = Math.min(slot - 4, 320)
-                    if (slot < 110) {
+                    if (slot < 90) {
                       // medium: type dot + short hash
                       return (
                         <button
@@ -1486,6 +1489,11 @@ export function CommitGraph({
                         >
                           {c.message}
                         </span>
+                        {slot >= 220 && (
+                          <span className="ml-auto max-w-[80px] shrink-0 truncate text-[9px] text-muted-foreground">
+                            {c.author}
+                          </span>
+                        )}
                         {c.aiAgent && (
                           <span
                             className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500"
