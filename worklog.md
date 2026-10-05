@@ -991,3 +991,15 @@ Stage Summary:
 4. 沙箱重启仍会清 repos/demo 与 .env.local —— 开工先跑
    ls repos/demo/.git && cat .env.local 体检
 5. self 仓库叙事：本次为第 13 个 Task commit（ed031b1）
+
+Task 13 追加（同轮后续，ed031b1 之后）:
+- 13-g rail 密度增强（采纳本 Task 建议 1）：
+  → 桌面 rail 2 行/76px → 3 行/104px 交错（移动端 48px 单行不变）；
+    badge+message 阈值 110→90 —— 默认 fit 缩放即显示 33/41 个
+    徽章+消息 chip（原先需放大到 220%）；slot≥220 追加 author 列
+  → 验证：railH=104、默认缩放 BUILD/DEPS/RELEASE 徽章+消息可见、
+    3 行交错零重叠、lanes 区不被挤压（VLM BUGS NONE）；移动端
+    390px 复检 railH=48、overflowX=0；控制台 0 错误
+  → commit: 3 行 rail 增强（本条与 ed031b1 同属 Task 13 轮次）
+- 剩余建议移交下轮：PNG 导出补 rail/halo；timeline 筛选行的
+  "在图中高亮"提示文案
