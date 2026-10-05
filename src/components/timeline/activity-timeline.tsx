@@ -546,6 +546,7 @@ export function ActivityTimeline({
           {typeFilter && (
             <span
               role="status"
+              title="matching commits keep their color + halo in the graph above; everything else is dimmed"
               className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold"
               style={{
                 borderColor: `${TYPE_META[typeFilter.rowKey as CommitType]?.color ?? '#a8a29e'}55`,

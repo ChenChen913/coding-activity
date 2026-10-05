@@ -101,7 +101,8 @@ export function ConventionsCard({
           <div>
             <div className="text-sm font-semibold leading-tight">Conventions</div>
             <div className="text-[11px] text-muted-foreground">
-              real commit types · click a row to filter the timeline
+              real commit types · click a row to filter the timeline{' '}
+              <span className="text-muted-foreground/70">&amp; highlight the graph</span>
             </div>
           </div>
         </div>
@@ -168,10 +169,10 @@ export function ConventionsCard({
                       count === 0
                         ? 'no commits of this type in view'
                         : active
-                          ? `${count.toLocaleString()} commits (${pct.toFixed(1)}%) — click to clear the timeline filter`
+                          ? `${count.toLocaleString()} commits (${pct.toFixed(1)}%) — click to clear the filter, un-dim the graph and show every record again`
                           : `${count.toLocaleString()} commits (${pct.toFixed(1)}%) — click to show only ${
                               isOther ? 'unclassified / merge' : type
-                            } records in the timeline`
+                            } records in the timeline, with a colored halo on matching graph nodes (the rest dim)`
                     }
                     className={`group -mx-1.5 flex w-[calc(100%+3px)] items-center gap-2.5 rounded-md px-1.5 py-[3px] text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/60 ${
                       count === 0
@@ -257,7 +258,7 @@ export function ConventionsCard({
           <button
             type="button"
             onClick={() => onToggleTypeFilter?.(typeFilter.rowKey, [])}
-            title="Clear the timeline type filter"
+            title="Clear the timeline type filter and restore every graph node to full opacity"
             className="inline-flex shrink-0 items-center gap-1 rounded-full border border-foreground/20 px-2 py-px font-medium text-foreground transition-colors hover:bg-muted"
           >
             <span
@@ -269,6 +270,7 @@ export function ConventionsCard({
               aria-hidden
             />
             filtering: {typeFilter.rowKey === 'other' ? 'other…' : typeFilter.rowKey}
+            <span className="hidden text-muted-foreground sm:inline">· graph dimmed</span>
             <span aria-hidden>×</span>
           </button>
         ) : (

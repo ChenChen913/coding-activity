@@ -798,6 +798,110 @@ export function CommitGraph({
   const hoveredCommit =
     hoveredRow !== null && layout ? layout.nodes[hoveredRow]?.commit : undefined
 
+  /* ---------------- minimap (full-history overview strip) ----------- */
+  /** every commit as a sub-pixel dot — row → x (newest at the LEFT,
+   *  mirroring the horizontal reading direction), lane → y; AI-assisted
+   *  commits glow amber, merges render slightly larger. Built once per
+   *  layout/width into a single <g> string so panning the main view never
+   *  re-renders thousands of circles. */
+  const miniDots = useMemo(() => {
+    if (!layout || size.w === 0) return null
+    const n = layout.nodes.length
+    if (n === 0) return null
+    const lanes = Math.max(1, layout.laneCount)
+    const W = size.w
+    const s: string[] = []
+    for (const nd of layout.nodes) {
+      const x = ((nd.row + 0.5) / n) * W
+      const y = 5 + ((nd.lane + 0.5) / lanes) * 20
+      const color = nd.commit.aiAgent ? '#f59e0b' : laneColor(nd.lane)
+      const r = nd.commit.isMerge ? 1.25 : 0.85
+      s.push(
+        `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r}" fill="${color}"/>`,
+      )
+    }
+    return s.join('')
+  }, [layout, size.w])
+
+  const miniTotal = layout?.nodes.length ?? 0
+  /** strip is only meaningful when history overflows the viewport */
+  const showMiniMap =
+    !!miniDots &&
+    !!geo &&
+    (horiz ? hTimeW > svgW : geo.totalH > viewH) &&
+    miniTotal > 1
+
+  const selectedMiniRow = useMemo(() => {
+    if (!layout || !selectedHash) return null
+    return layout.nodes.findIndex((nd) => nd.commit.hash === selectedHash)
+  }, [layout, selectedHash])
+
+  /** fraction (0..1 along the strip) → center the main view on that row.
+   *  Clicks glide (animateTo); drags track the pointer 1:1 with raw
+   *  transforms for a scrubber feel. Geometry comes from the rendered
+   *  `geo` — the exact same values the screen shows — so the jump can
+   *  never race a pending fit/scale change the way a recomputed
+   *  transform snapshot could. */
+  const miniJump = useCallback(
+    (frac: number, animate: boolean) => {
+      const lay = layoutRef.current
+      const g = geo
+      const n = commitsRef.current.length
+      if (!lay || !g || n === 0) return
+      const row = clamp(Math.round(frac * (n - 1)), 0, n - 1)
+      const { w, h } = sizeRef.current
+      if (horiz) {
+        const timeW = LEFT_PAD * 2 + n * g.rh
+        const sw = Math.max(60, w - labelWOf(w))
+        if (timeW <= sw) return
+        const worldX = LEFT_PAD + row * g.rh + g.rh / 2
+        // screen x = world x + tx → bring worldX to the viewport center
+        const tx = clamp(sw / 2 - worldX, sw - timeW, 0)
+        if (animate) animateTo({ tx, ty: tyRef.current })
+        else {
+          cancelPanAnim()
+          setTransform({ tx })
+        }
+      } else {
+        if (g.totalH <= h) return
+        const worldY = TOP_PAD + row * g.rh + g.rh / 2
+        const ty = clamp(worldY - h / 2, 0, g.totalH - h)
+        if (animate) animateTo({ ty })
+        else {
+          cancelPanAnim()
+          setTransform({ ty })
+        }
+      }
+    },
+    [horiz, geo, animateTo, cancelPanAnim, setTransform],
+  )
+
+  const miniDragRef = useRef(false)
+  const onMiniPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    miniDragRef.current = true
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId)
+    } catch {
+      /* pointer capture is best-effort */
+    }
+    const rect = e.currentTarget.getBoundingClientRect()
+    miniJump(clamp((e.clientX - rect.left) / rect.width, 0, 1), true)
+  }
+  const onMiniPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!miniDragRef.current) return
+    const rect = e.currentTarget.getBoundingClientRect()
+    miniJump(clamp((e.clientX - rect.left) / rect.width, 0, 1), false)
+  }
+  const onMiniPointerEnd = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!miniDragRef.current) return
+    miniDragRef.current = false
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId)
+    } catch {
+      /* already released */
+    }
+  }
+
   /** commit → parsed conventional type (memoized; powers filter dimming
    *  and the type-colored halo on matching nodes) */
   const typeOf = useMemo(() => {
@@ -976,6 +1080,15 @@ export function CommitGraph({
           gutterW: GUTTER_W,
           laneAreaW,
           axisH: AXIS_H,
+          labelW: horiz ? labelW : 0,
+          railH: horiz ? railH : 0,
+          railRows,
+          laneLabels: horiz
+            ? laneLabels.map((l) =>
+                l ? { name: l.name, isCurrent: l.isCurrent } : null,
+              )
+            : null,
+          typeKinds: typeFilterKinds ?? null,
           startRow: visible.startRow,
           endRow: visible.endRow,
           geo: geoNow,
@@ -997,7 +1110,7 @@ export function CommitGraph({
         setExporting(false)
       }
     },
-    [geo, visible, size.w, size.h, orientation, isDark, repoLabel, branchLabel, selectedHash, laneAreaW, effTx, effTy, commits.length],
+    [geo, visible, size.w, size.h, orientation, isDark, repoLabel, branchLabel, selectedHash, laneAreaW, effTx, effTy, commits.length, horiz, labelW, railH, railRows, laneLabels, typeFilterKinds],
   )
 
   const exportPoster = useCallback(async () => {
@@ -1165,13 +1278,16 @@ export function CommitGraph({
         </div>
       </div>
 
-      {/* canvas */}
+      {/* canvas — slightly shorter when the minimap strip is mounted
+          below it, so the card's overall height stays close to constant */}
       <div
         ref={containerRef}
         role="application"
         aria-label="Commit graph — arrow keys move the selection, Escape clears it"
         tabIndex={0}
-        className="relative h-[400px] touch-none select-none overflow-hidden overscroll-contain outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 md:h-[560px]"
+        className={`relative touch-none select-none overflow-hidden overscroll-contain outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 ${
+          showMiniMap ? 'h-[380px] md:h-[530px]' : 'h-[400px] md:h-[560px]'
+        }`}
         style={{ cursor: 'grab' }}
         onPointerDown={onPointerDown}
         onDoubleClick={onDoubleClick}
@@ -1852,6 +1968,69 @@ export function CommitGraph({
           </>
         )}
       </div>
+
+      {/* minimap — the whole history at a glance: every commit as a dot
+          (newest at the left), the emerald window is your current
+          viewport; click or drag to travel. Scrubber-style navigation
+          that makes "where am I in 15 years of history" obvious. */}
+      {showMiniMap && miniDots && (
+        <div
+          className="relative h-[30px] shrink-0 touch-none select-none border-t bg-background"
+          aria-label="History minimap — click or drag to travel through the commit history"
+          title="Minimap — every commit as a dot · click or drag to travel"
+          style={{ cursor: 'crosshair' }}
+          onPointerDown={onMiniPointerDown}
+          onPointerMove={onMiniPointerMove}
+          onPointerUp={onMiniPointerEnd}
+          onPointerCancel={onMiniPointerEnd}
+        >
+          <svg
+            className="pointer-events-none absolute inset-0"
+            width="100%"
+            height="30"
+            viewBox={`0 0 ${Math.max(size.w, 1)} 30`}
+            preserveAspectRatio="none"
+            aria-hidden
+          >
+            <g dangerouslySetInnerHTML={{ __html: miniDots }} />
+          </svg>
+          {/* reading-direction micro labels */}
+          <span
+            className="pointer-events-none absolute left-1 top-1/2 -translate-y-1/2 font-mono text-[8px] font-semibold uppercase tracking-wider text-muted-foreground/40"
+            aria-hidden
+          >
+            new
+          </span>
+          <span
+            className="pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 font-mono text-[8px] uppercase tracking-wider text-muted-foreground/40"
+            aria-hidden
+          >
+            old
+          </span>
+          {/* current viewport window */}
+          {visible && miniTotal > 0 && (
+            <div
+              className="pointer-events-none absolute inset-y-[2px] rounded-[2px] border-2 border-emerald-600/70 bg-emerald-500/10 dark:border-emerald-400/60"
+              style={{
+                left: `${(visible.startRow / miniTotal) * 100}%`,
+                width: `${Math.max(
+                  0.6,
+                  ((visible.endRow - visible.startRow + 1) / miniTotal) * 100,
+                )}%`,
+              }}
+            />
+          )}
+          {/* selected commit marker */}
+          {selectedMiniRow !== null && selectedMiniRow >= 0 && (
+            <div
+              className="pointer-events-none absolute inset-y-[3px] w-[2px] -translate-x-1/2 rounded-full bg-foreground/70"
+              style={{
+                left: `${((selectedMiniRow + 0.5) / Math.max(miniTotal, 1)) * 100}%`,
+              }}
+            />
+          )}
+        </div>
+      )}
 
       {/* footer — OUTSIDE the canvas on purpose: the back-to-latest
           control can never be covered by hover tooltips, and the strip

@@ -8,7 +8,9 @@
  *
  * Two modes:
  *  - 'view'   — exactly what the user currently sees (viewport + visible
- *               slice, labels included)
+ *               slice, labels included): horizontal mode renders the lane
+ *               label gutter + bottom commit rail; both modes honor the
+ *               active type filter (halo on matches, dimming on the rest)
  *  - 'poster' — the entire history, every single commit, auto-scaled to a
  *               long poster strip (never sampled, never truncated)
  */
@@ -16,6 +18,7 @@
 import type { Geo, GraphLayout } from './layout'
 import { LANE_W, LEFT_PAD, ROW_H, TOP_PAD, laneColor } from './layout'
 import type { GraphCommit } from '@/lib/git/types'
+import { parseCommitType, TYPE_META, type CommitType } from '@/lib/commit-type'
 
 /* ------------------------------------------------------------------ */
 /*  shared                                                             */
@@ -42,6 +45,7 @@ function palette(dark: boolean) {
         faint: '#78716c',
         line: '#3f3a36',
         grid: '#292524',
+        accent: '#34d399',
       }
     : {
         bg: '#fafaf9',
@@ -50,6 +54,7 @@ function palette(dark: boolean) {
         faint: '#a8a29e',
         line: '#e7e5e4',
         grid: '#efedeb',
+        accent: '#059669',
       }
 }
 
@@ -72,10 +77,59 @@ function timeLabel(iso: string): string {
     : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+/** list-column time: HH:mm for recent commits, date for older ones
+ *  (mirrors the on-screen message list) */
+function listTime(iso: string): string {
+  const d = new Date(iso)
+  return Date.now() - d.getTime() < 86_400_000
+    ? `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+    : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 /** escape hatch for names that end up inside font-family quotes — not needed,
  *  but keeps the SVG well-formed if a label ever contains quotes */
 function escAttr(s: string): string {
   return esc(s).replace(/'/g, '&#39;')
+}
+
+/* ------------------------------------------------------------------ */
+/*  type filter helpers (shared by view export — halo + dimming)       */
+/* ------------------------------------------------------------------ */
+
+interface TypeFx {
+  /** halo stroke color for filter-matching nodes (null = filter off / no match) */
+  halo: string | null
+  /** true when a filter is active and this commit is outside it */
+  dim: boolean
+}
+
+function typeFxOf(
+  typeKinds: CommitType[] | null,
+): (c: GraphCommit) => TypeFx {
+  if (!typeKinds || typeKinds.length === 0) return () => ({ halo: null, dim: false })
+  const set = new Set<CommitType>(typeKinds)
+  return (c) => {
+    const t = parseCommitType(c.message)
+    if (set.has(t)) return { halo: TYPE_META[t].color, dim: false }
+    return { halo: null, dim: true }
+  }
+}
+
+/** small type badge chip (SVG counterpart of CommitTypeBadge) — returns an
+ *  empty string for structural/hidden types, matching the on-screen badge */
+function badgeSvg(x: number, cy: number, t: CommitType): { s: string; w: number } {
+  const meta = TYPE_META[t]
+  if (!meta || meta.hidden || !meta.chip) return { s: '', w: 0 }
+  const label = t.toUpperCase()
+  const w = label.length * 5.8 + 8
+  const h = 15
+  const y = cy - h / 2
+  return {
+    w,
+    s:
+      `<rect x="${f(x)}" y="${f(y)}" width="${f(w)}" height="${h}" rx="3" fill="${meta.color}1f" stroke="${meta.color}66"/>` +
+      `<text x="${f(x + w / 2)}" y="${f(cy + 3)}" text-anchor="middle" font-family="${MONO}" font-size="8.5" font-weight="700" fill="${meta.color}">${label}</text>`,
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -91,12 +145,21 @@ function nodeSvg(
   bg: string,
   selected: boolean,
   theme: ExportTheme,
+  fx?: TypeFx,
 ): string {
   const color = laneColor(lane)
   const parts: string[] = []
+  if (fx && (fx.halo || fx.dim)) {
+    parts.push(`<g opacity="${fx.dim ? 0.25 : 1}">`)
+  }
   if (selected) {
     parts.push(
       `<circle cx="${f(x)}" cy="${f(y)}" r="${f(r + 4)}" fill="none" stroke="${color}" stroke-width="1.6" opacity="0.9"/>`,
+    )
+  }
+  if (fx?.halo) {
+    parts.push(
+      `<circle cx="${f(x)}" cy="${f(y)}" r="${f(r + 2.5)}" fill="none" stroke="${fx.halo}" stroke-width="1.3" opacity="0.85"/>`,
     )
   }
   parts.push(
@@ -114,6 +177,7 @@ function nodeSvg(
       `<circle cx="${f(ax)}" cy="${f(ay)}" r="${f(Math.max(2.1 * (r / 5), 0.9))}" fill="#f59e0b" stroke="${bg}" stroke-width="${Math.max(1 * (r / 5), 0.4)}"/>`,
     )
   }
+  if (fx && (fx.halo || fx.dim)) parts.push('</g>')
   return parts.join('')
 }
 
@@ -157,6 +221,16 @@ export interface ViewExportOptions extends ExportTheme {
   laneAreaW: number
   /** horizontal layout: top axis strip height */
   axisH: number
+  /** horizontal layout: left lane-label gutter width (0 = none) */
+  labelW: number
+  /** horizontal layout: bottom commit rail height (0 = none) */
+  railH: number
+  /** horizontal layout: rail interleave rows (1 mobile / 3 desktop) */
+  railRows: number
+  /** horizontal layout: per-lane branch tip labels (null lanes = structural) */
+  laneLabels: Array<{ name: string; isCurrent: boolean } | null> | null
+  /** active type filter (null = off) — matches get a halo, the rest dim */
+  typeKinds: CommitType[] | null
   startRow: number
   endRow: number
   geo: Geo
@@ -168,8 +242,8 @@ export interface ViewExportOptions extends ExportTheme {
 export function buildViewSvg(layout: GraphLayout, o: ViewExportOptions): { svg: string; w: number; h: number } {
   const p = palette(o.dark)
   const { geo } = o
-  const n = layout.nodes.length
   const horiz = o.orientation === 'horizontal'
+  const fxOf = typeFxOf(o.typeKinds)
 
   const laneXOf = (lane: number) => LEFT_PAD + lane * geo.lw + geo.lw / 2
   const rowYOf = (row: number) => TOP_PAD + row * geo.rh + geo.rh / 2
@@ -220,13 +294,15 @@ export function buildViewSvg(layout: GraphLayout, o: ViewExportOptions): { svg: 
           p.bg,
           o.selectedHash === nd.commit.hash,
           o,
+          fxOf(nd.commit),
         ),
       )
     }
     g.push('</g>')
     parts.push(g.join(''))
 
-    /* ---- message list ---- */
+    /* ---- message list (type badge + subject + branch pills + author + time,
+            with the same filter dimming as on screen) ---- */
     const listX = o.gutterW + o.laneAreaW
     if (listX < o.width - 60) {
       const listW = o.width - listX
@@ -235,65 +311,149 @@ export function buildViewSvg(layout: GraphLayout, o: ViewExportOptions): { svg: 
       const showText = geo.rh >= 15
       for (const nd of rows) {
         const c = nd.commit
+        const fx = fxOf(c)
         const y = rowYOf(nd.row) - o.ty
         if (y < -geo.rh || y > o.height + geo.rh) continue
         const top = y - geo.rh / 2
         const selected = o.selectedHash === c.hash
+        const dimmed = fx.dim && !selected
         if (selected) {
           lg.push(`<rect x="${f(listX)}" y="${f(top)}" width="${f(listW)}" height="${f(geo.rh)}" fill="${p.fg}" opacity="0.07"/>`)
         }
         if (!showText) continue
+        const rowG: string[] = [`<g opacity="${dimmed ? 0.4 : 1}">`]
         const timeW = 66
         const authorW = c.author.length > 0 ? Math.min(120, c.author.length * 6.4 + 8) : 0
-        const msgX = listX + 12
-        const msgMax = Math.max(10, Math.floor((listW - 24 - timeW - authorW - 12) / 6.3))
-        lg.push(
-          `<text x="${f(msgX)}" y="${f(y + 4)}" font-family="${SANS}" font-size="12.5" ${selected ? `font-weight="600" fill="${p.fg}"` : `font-weight="500" fill="${p.fg}" opacity="0.92"`}>${escAttr(clip(c.message, msgMax))}</text>`,
+        // type badge
+        const badge = badgeSvg(listX + 12, y, parseCommitType(c.message))
+        let cursorX = listX + 12 + badge.w
+        if (badge.s) {
+          rowG.push(badge.s)
+          cursorX += 6
+        }
+        // branch pills (local branches get a lane-colored fill; remotes outline)
+        let pillsW = 0
+        const pills: string[] = []
+        for (const b of c.headBranches.slice(0, 3)) {
+          const isRemote = b.includes('/')
+          const pw = Math.min(b.length * 5.6 + 12, 120)
+          const pillY = y - 8
+          if (isRemote) {
+            pills.push(
+              `<rect x="${f(cursorX + pillsW)}" y="${f(pillY)}" width="${f(pw)}" height="16" rx="8" fill="none" stroke="${p.line}"/>` +
+              `<text x="${f(cursorX + pillsW + pw / 2)}" y="${f(y + 3)}" text-anchor="middle" font-family="${SANS}" font-size="10" fill="${p.sub}">${escAttr(clip(b, Math.floor(pw / 5.6)))}</text>`,
+            )
+          } else {
+            pills.push(
+              `<rect x="${f(cursorX + pillsW)}" y="${f(pillY)}" width="${f(pw)}" height="16" rx="8" fill="${laneColor(nd.lane)}" fill-opacity="0.85"/>` +
+              `<text x="${f(cursorX + pillsW + pw / 2)}" y="${f(y + 3)}" text-anchor="middle" font-family="${SANS}" font-size="10" fill="#ffffff">${escAttr(clip(b, Math.floor(pw / 5.6)))}</text>`,
+            )
+          }
+          pillsW += pw + 6
+        }
+        // message (budget: badge + pills + time + author)
+        const msgMax = Math.max(
+          10,
+          Math.floor((listW - 24 - badge.w - (badge.s ? 6 : 0) - pillsW - timeW - authorW - 12) / 6.3),
         )
+        rowG.push(
+          `<text x="${f(cursorX + pillsW)}" y="${f(y + 4)}" font-family="${SANS}" font-size="12.5" ${selected ? `font-weight="600" fill="${p.fg}"` : `font-weight="500" fill="${p.fg}" opacity="0.92"`}>${escAttr(clip(c.message, msgMax))}</text>`,
+        )
+        rowG.push(...pills)
         if (authorW > 0) {
-          lg.push(
+          rowG.push(
             `<text x="${f(o.width - timeW - 14)}" y="${f(y + 4)}" text-anchor="end" font-family="${SANS}" font-size="11.5" fill="${p.sub}">${escAttr(clip(c.author, 18))}</text>`,
           )
         }
-        lg.push(
-          `<text x="${f(o.width - 12)}" y="${f(y + 4)}" text-anchor="end" font-family="${MONO}" font-size="10.5" fill="${p.sub}">${timeLabel(c.committedAt)}</text>`,
+        rowG.push(
+          `<text x="${f(o.width - 12)}" y="${f(y + 4)}" text-anchor="end" font-family="${MONO}" font-size="10.5" fill="${p.sub}">${listTime(c.committedAt)}</text>`,
         )
+        rowG.push('</g>')
+        lg.push(rowG.join(''))
       }
       lg.push('</g>')
       parts.push(lg.join(''))
     }
   } else {
-    /* ---- horizontal: top time axis ---- */
-    parts.push(`<line x1="0" y1="${f(o.axisH)}" x2="${f(o.width)}" y2="${f(o.axisH)}" stroke="${p.line}"/>`)
+    /* ---- horizontal: everything lives right of the lane-label gutter ---- */
+    const labelW = o.labelW
+    const railH = o.railH
+    const railY0 = o.height - railH
+    const graphW = o.width - labelW
+
+    /* lane-label gutter (branch tips pinned to the left edge) */
+    parts.push(`<rect x="0" y="${f(o.axisH)}" width="${f(labelW)}" height="${f(Math.max(0, railY0 - o.axisH))}" fill="${p.bg}" opacity="0.82"/>`)
+    parts.push(`<line x1="${f(labelW)}" y1="${f(o.axisH)}" x2="${f(labelW)}" y2="${f(railY0)}" stroke="${p.line}"/>`)
+    if (o.laneLabels && geo.lw > 0) {
+      const compact = geo.lw < 15
+      const lg: string[] = []
+      for (let i = 0; i < o.laneLabels.length; i++) {
+        const y = laneYOf(i) - o.ty
+        if (y < o.axisH - 10 || y > railY0 + 10) continue
+        const ln = o.laneLabels[i]
+        const color = laneColor(i)
+        const h = compact ? Math.min(8, geo.lw - 2) : Math.min(20, geo.lw - 2)
+        const top = Math.min(Math.max(y - h / 2, o.axisH + 2), railY0 - h - 2)
+        if (ln) {
+          lg.push(
+            `<rect x="4" y="${f(top)}" width="${f(labelW - 8)}" height="${f(h)}" rx="4" fill="${color}14" stroke="${color}55"/>`,
+          )
+        }
+        lg.push(`<circle cx="${f(4 + (compact ? (labelW - 8) / 2 : 8))}" cy="${f(top + h / 2)}" r="3" fill="${color}"/>`)
+        if (!compact && ln) {
+          lg.push(
+            `<text x="${f(4 + 15)}" y="${f(top + h / 2 + 3.5)}" font-family="${SANS}" font-size="10" ${ln.isCurrent ? `font-weight="700" fill="${p.fg}"` : `font-weight="500" fill="${p.fg}" opacity="0.8"`}>${escAttr(clip(ln.name, Math.floor((labelW - 26) / 5.6)))}</text>`,
+          )
+        } else if (!compact) {
+          lg.push(
+            `<text x="${f(4 + 15)}" y="${f(top + h / 2 + 3.5)}" font-family="${MONO}" font-size="10" fill="${p.faint}" opacity="0.6">L${i + 1}</text>`,
+          )
+        }
+      }
+      parts.push(lg.join(''))
+    }
+
+    /* graph area (axis + edges + nodes + rail), clipped to the right of the gutter */
+    const g: string[] = [
+      `<g transform="translate(${f(labelW)} 0)" clip-path="url(#hgraph)">`,
+      `<defs><clipPath id="hgraph"><rect x="0" y="0" width="${f(graphW)}" height="${f(o.height)}"/></clipPath></defs>`,
+    ]
+
+    /* top time axis + fixed direction anchors */
+    g.push(`<line x1="0" y1="${f(o.axisH)}" x2="${f(graphW)}" y2="${f(o.axisH)}" stroke="${p.line}"/>`)
     let lastX = -Infinity
     for (const m of layout.monthMarks) {
       if (m.row < o.startRow - 2 || m.row > o.endRow + 2) continue
       const x = timeXOf(m.row) + o.tx
-      if (x < 24 || x > o.width - 12 || x - lastX < (m.isYearStart ? 34 : 30)) continue
+      if (x < 24 || x > graphW - 12 || x - lastX < (m.isYearStart ? 34 : 30)) continue
       lastX = x
       if (m.isYearStart) {
-        parts.push(
+        g.push(
           `<line x1="${f(x)}" y1="${f(o.axisH)}" x2="${f(x)}" y2="${f(o.height)}" stroke="${p.grid}"/>`,
         )
       }
-      parts.push(
+      g.push(
         `<text x="${f(x)}" y="${f(o.axisH - 8)}" text-anchor="middle" font-family="${SANS}" font-size="${m.isYearStart ? 11 : 9.5}" ${m.isYearStart ? `font-weight="600" fill="${p.fg}" opacity="0.75"` : `fill="${p.sub}" opacity="0.85"`}>${m.isYearStart ? m.year : monthShort(m.month)}</text>`,
       )
     }
+    g.push(
+      `<text x="10" y="${f(o.axisH - 8)}" font-family="${SANS}" font-size="10" font-weight="600" fill="${p.accent}">← newest</text>`,
+      `<text x="${f(graphW - 10)}" y="${f(o.axisH - 8)}" text-anchor="end" font-family="${SANS}" font-size="10" font-weight="500" fill="${p.sub}">oldest →</text>`,
+    )
 
-    /* ---- edges + nodes ---- */
-    const g: string[] = [`<g transform="translate(0 ${f(o.axisH)})">`]
+    /* edges + nodes */
+    const ng: string[] = [`<g transform="translate(0 ${f(o.axisH)})">`]
     for (const e of edges) {
       const x1 = timeXOf(e.childRow) + o.tx
       const y1 = laneYOf(e.childLane) - o.ty
       const x2 = timeXOf(e.parentRow) + o.tx
       const y2 = laneYOf(e.parentLane) - o.ty
-      g.push(
+      ng.push(
         edgeSvg(x1, y1, x2, y2, true, laneColor(e.colorLane), geo.edgeW * (e.isSecondary ? 0.85 : 1), 0.92),
       )
     }
     for (const nd of rows) {
-      g.push(
+      ng.push(
         nodeSvg(
           nd.commit,
           nd.lane,
@@ -303,11 +463,105 @@ export function buildViewSvg(layout: GraphLayout, o: ViewExportOptions): { svg: 
           p.bg,
           o.selectedHash === nd.commit.hash,
           o,
+          fxOf(nd.commit),
         ),
       )
     }
+    ng.push('</g>')
+    g.push(ng.join(''))
+
+    /* bottom commit rail — the counterpart of the vertical message list */
+    if (railH > 0) {
+      const railRows = Math.max(1, o.railRows)
+      const chipH =
+        railRows === 1 ? railH - 10 : (railH - 10 - (railRows - 1) * 2) / railRows
+      g.push(`<line x1="0" y1="${f(railY0)}" x2="${f(graphW)}" y2="${f(railY0)}" stroke="${p.line}"/>`)
+      const rg: string[] = []
+      for (const nd of rows) {
+        const c = nd.commit
+        const cw = geo.rh
+        const cx = timeXOf(nd.row) + o.tx
+        if (cx < -160 || cx > graphW + 160) continue
+        const slot = cw * railRows
+        const fx = fxOf(c)
+        const selected = o.selectedHash === c.hash
+        const dimmed = fx.dim && !selected
+        const t = parseCommitType(c.message)
+        const tColor = TYPE_META[t].color
+        const top = railY0 + 5 + (nd.row % railRows) * (chipH + 2)
+        const cy = top + chipH / 2
+        const chip: string[] = [`<g opacity="${dimmed ? 0.4 : 1}">`]
+        if (slot < 14) {
+          // ultra-dense: one structural tick per commit
+          const w = Math.max(cw, 10)
+          chip.push(
+            `<rect x="${f(cx - w / 2)}" y="${f(railY0 + 8)}" width="${f(w)}" height="${f(railH - 16)}" fill="transparent"/>`,
+            `<rect x="${f(cx - 1)}" y="${f(railY0 + 8)}" width="2" height="${f(railH - 16)}" rx="1" fill="${selected ? p.accent : laneColor(nd.lane)}"/>`,
+          )
+        } else if (slot < 46) {
+          // dense: a type-colored dot per commit
+          const w = Math.max(cw, 14)
+          if (selected) {
+            chip.push(`<rect x="${f(cx - w / 2)}" y="${f(top)}" width="${f(w)}" height="${f(chipH)}" rx="6" fill="${p.fg}" opacity="0.08"/>`)
+          }
+          chip.push(`<circle cx="${f(cx)}" cy="${f(cy)}" r="4" fill="${tColor}"/>`)
+        } else {
+          const w = Math.min(slot - 4, 320)
+          if (selected) {
+            chip.push(`<rect x="${f(cx - w / 2)}" y="${f(top)}" width="${f(w)}" height="${f(chipH)}" rx="6" fill="${p.fg}" opacity="0.08" stroke="${p.line}"/>`)
+          }
+          let innerX = cx - w / 2 + 6
+          if (slot < 90) {
+            // medium: type dot + short hash
+            chip.push(`<circle cx="${f(innerX + 3)}" cy="${f(cy)}" r="2.8" fill="${tColor}"/>`)
+            innerX += 10
+            chip.push(
+              `<text x="${f(innerX)}" y="${f(cy + 3.5)}" font-family="${MONO}" font-size="9" fill="${p.sub}">${escAttr(c.shortHash)}</text>`,
+            )
+            if (c.aiAgent) {
+              chip.push(`<circle cx="${f(cx + w / 2 - 6)}" cy="${f(cy)}" r="2" fill="#f59e0b"/>`)
+            }
+          } else {
+            // roomy: type badge + message (+ author at very high zoom)
+            const badge = badgeSvg(innerX, cy, t)
+            if (badge.s) {
+              chip.push(badge.s)
+              innerX += badge.w + 5
+            }
+            const authorW = slot >= 220 && c.author ? Math.min(80, c.author.length * 5.4 + 4) : 0
+            const aiW = c.aiAgent ? 8 : 0
+            const msgMax = Math.max(4, Math.floor((w - 12 - (badge.s ? badge.w + 5 : 0) - authorW - aiW) / 5.5))
+            chip.push(
+              `<text x="${f(innerX)}" y="${f(cy + 3.5)}" font-family="${SANS}" font-size="10" font-weight="${selected ? '600' : '500'}" fill="${p.fg}" opacity="0.95">${escAttr(clip(c.message, msgMax))}</text>`,
+            )
+            if (authorW > 0) {
+              chip.push(
+                `<text x="${f(cx + w / 2 - 6 - aiW)}" y="${f(cy + 3.5)}" text-anchor="end" font-family="${SANS}" font-size="9" fill="${p.sub}">${escAttr(clip(c.author, Math.floor(authorW / 5.4)))}</text>`,
+              )
+            }
+            if (c.aiAgent) {
+              chip.push(`<circle cx="${f(cx + w / 2 - 4)}" cy="${f(cy)}" r="2" fill="#f59e0b"/>`)
+            }
+          }
+        }
+        chip.push('</g>')
+        rg.push(chip.join(''))
+      }
+      g.push(rg.join(''))
+    }
+
     g.push('</g>')
     parts.push(g.join(''))
+
+    /* rail header cell (above the gutter, bottom-left corner) */
+    if (railH > 0) {
+      parts.push(
+        `<rect x="0" y="${f(railY0)}" width="${f(labelW)}" height="${f(railH)}" fill="${p.bg}" opacity="0.82"/>`,
+        `<line x1="0" y1="${f(railY0)}" x2="${f(labelW)}" y2="${f(railY0)}" stroke="${p.line}"/>`,
+        `<line x1="${f(labelW)}" y1="${f(railY0)}" x2="${f(labelW)}" y2="${f(o.height)}" stroke="${p.line}"/>`,
+        `<text x="${f(labelW / 2)}" y="${f(railY0 + railH / 2 + 3)}" text-anchor="middle" font-family="${SANS}" font-size="9" font-weight="600" letter-spacing="1" fill="${p.sub}" opacity="0.8">COMMITS</text>`,
+      )
+    }
   }
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${f(o.width)}" height="${f(o.height)}" viewBox="0 0 ${f(o.width)} ${f(o.height)}">${parts.join('')}</svg>`
