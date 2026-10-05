@@ -125,25 +125,62 @@
 /*  AI Coding Activity — graph & list refinements                      */
 /* ------------------------------------------------------------------ */
 
-/* pulsing ring around the selected commit node (SVG circle) */
+/* attention-strong locate flash on the selected commit node (SVG circles).
+   User-tested spec: the ping must be obvious at a glance — twin radar
+   rings expand fast & far (phase-shifted, so a ping lands every ~0.35s),
+   and a breathing glow pulses behind the node itself. */
 @keyframes pulse-ring {
   0% {
-    transform: scale(0.55);
-    opacity: 0.9;
+    transform: scale(0.42);
+    opacity: 0.95;
   }
   70% {
-    transform: scale(1.6);
+    transform: scale(2.85);
     opacity: 0;
   }
   100% {
-    transform: scale(1.6);
+    transform: scale(2.85);
     opacity: 0;
   }
 }
 .pulse-ring {
   transform-box: fill-box;
   transform-origin: center;
-  animation: pulse-ring 1.9s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+  animation: pulse-ring 1.05s cubic-bezier(0.12, 0.85, 0.25, 1) infinite;
+  will-change: transform, opacity;
+}
+/* second ring, phase-shifted into the gap between pings */
+.pulse-ring-lag {
+  animation-delay: -0.35s;
+}
+/* breathing glow behind the selected node itself */
+@keyframes pulse-core {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1.55);
+    opacity: 0.12;
+  }
+}
+.pulse-core {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: pulse-core 1.05s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+/* commit density card — bars grow up from the baseline on mount
+   (height is set inline per bar; the keyframe only defines the start) */
+@keyframes density-grow {
+  from {
+    height: 0;
+  }
+}
+.density-bar {
+  animation: density-grow 0.5s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
 /* slim scrollbar for detail panel / search results / message bodies */

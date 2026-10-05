@@ -12,7 +12,7 @@
  * comes from the real repository.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { motion } from 'framer-motion'
@@ -49,6 +49,7 @@ import { CommitDetailPanel } from '@/components/commit-detail/commit-detail-pane
 import { ActivityTimeline } from '@/components/timeline/activity-timeline'
 import { ContributorCard } from '@/components/dashboard/contributor-card'
 import { RhythmCard } from '@/components/dashboard/rhythm-card'
+import { DensityCard } from '@/components/dashboard/density-card'
 import {
   ConventionsCard,
   type TypeFilterSelection,
@@ -206,7 +207,30 @@ export default function Home() {
     retry: 1,
   })
 
-  const repos = reposQuery.data?.repos.filter((r) => r.available) ?? []
+  const allRepos = reposQuery.data?.repos ?? []
+  const repos = allRepos.filter((r) => r.available)
+  /** clean-first-run guard: after the registry loads, drop any repoId
+      that is not on disk (e.g. fresh local deploy without repos/demo)
+      and fall back to the first available one — no error screen */
+  const reposLoaded = !reposQuery.isLoading && !reposQuery.isError
+  const noRepoAvailable = reposLoaded && repos.length === 0
+  useEffect(() => {
+    if (!reposLoaded) return
+    const current = allRepos.find((r) => r.id === repoId)
+    if (current?.available) return
+    const first = repos[0]
+    if (!first) return
+    // rAF-wrapped: async so the lint set-state-in-effect rule stays
+    // satisfied (same pattern as the orientation restore effect above)
+    const raf = requestAnimationFrame(() => {
+      setRepoId(first.id)
+      setBranchFilter('all')
+      setAuthorFilter(null)
+      setSelectedHash(null)
+      setTypeFilter(null)
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [reposLoaded, allRepos, repos, repoId])
   const overview = overviewQuery.data
   const commitsData = commitsQuery.data
   const tagsData = tagsQuery.data
@@ -218,6 +242,14 @@ export default function Home() {
       within the same repo keep the old graph visible (no blank window). */
   const commitsMatchRepo = commitsData?.repoId === repoId
   const commits = commitsMatchRepo ? (commitsData?.commits ?? []) : []
+  /** committedAt of the selected commit — drives the density-card marker */
+  const selectedAt = useMemo(
+    () =>
+      selectedHash
+        ? (commits.find((c) => c.hash === selectedHash)?.committedAt ?? null)
+        : null,
+    [selectedHash, commits],
+  )
   const horizGraph = orientation === 'horizontal'
 
   /** same cross-repo guard for tags + github events */
@@ -401,6 +433,21 @@ export default function Home() {
                     </span>
                   </SelectItem>
                 ))}
+                {/* unavailable registry entries stay visible (disabled) so
+                    a fresh local deploy explains itself instead of hiding
+                    the demo dataset behind a silent empty list */}
+                {allRepos
+                  .filter((r) => !r.available)
+                  .map((r) => (
+                    <SelectItem key={r.id} value={r.id} disabled>
+                      <span className="font-medium text-muted-foreground/70">
+                        {r.name}
+                      </span>
+                      <span className="ml-2 text-[10px] text-muted-foreground/60">
+                        not on disk · scripts/demo.sh restore
+                      </span>
+                    </SelectItem>
+                  ))}
               </SelectContent>
             </Select>
             <Button
@@ -426,6 +473,51 @@ export default function Home() {
           </div>
         </motion.section>
 
+        {/* clean-first-run onboarding: no registered repository is on
+            disk yet — explain how to get data instead of showing errors */}
+        {noRepoAvailable ? (
+          <Card className="border-dashed">
+            <CardContent className="flex flex-col items-center gap-4 px-6 py-14 text-center">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl border bg-card">
+                <Database className="h-5 w-5 text-muted-foreground" />
+              </div>
+              <div className="max-w-xl space-y-1.5">
+                <h2 className="text-base font-semibold">
+                  No repository found — your workspace is clean
+                </h2>
+                <p className="text-[12.5px] leading-relaxed text-muted-foreground">
+                  This dashboard reads <strong>real git history only</strong>;
+                  nothing is bundled in the app itself. Point it at any local
+                  git repository and refresh — no database, no setup.
+                </p>
+              </div>
+              <div className="grid w-full max-w-2xl gap-3 text-left sm:grid-cols-2">
+                <div className="rounded-lg border bg-card/60 p-3.5">
+                  <div className="text-[12px] font-semibold">Watch your own repo</div>
+                  <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                    Register it in{' '}
+                    <code className="rounded bg-muted px-1 py-px font-mono text-[10px]">
+                      src/lib/git/repos.ts
+                    </code>{' '}
+                    — one entry with an absolute path, then reload. Takes
+                    about 30 seconds.
+                  </p>
+                </div>
+                <div className="rounded-lg border bg-card/60 p-3.5">
+                  <div className="text-[12px] font-semibold">Restore the demo dataset</div>
+                  <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                    <code className="rounded bg-muted px-1 py-px font-mono text-[10px]">
+                      bash scripts/demo.sh restore
+                    </code>{' '}
+                    clones expressjs/express (6,430+ commits, real merges)
+                    from the bundled offline snapshot.
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
+        <>
         {/* error */}
         {loadError && !overviewQuery.isFetching && (
           <Card className="border-red-200 dark:border-red-500/40">
@@ -609,6 +701,22 @@ export default function Home() {
           </motion.div>
         </motion.section>
 
+        {/* ---------------- COMMIT DENSITY (wide) ---------------- */}
+        <motion.div
+          variants={staggerItem}
+          initial={{ opacity: 0, y: 14 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: '-40px 0px' }}
+          transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+        >
+          <DensityCard
+            commits={commits}
+            loading={commitsQuery.isLoading || !commitsMatchRepo}
+            onSelect={selectAndReveal}
+            selectedAt={selectedAt}
+          />
+        </motion.div>
+
         {/* ---------------- RELEASE TIMELINE (wide) ---------------- */}
         <motion.div
           variants={staggerItem}
@@ -653,6 +761,8 @@ export default function Home() {
             clientFiltered={branchFilter !== 'all' || authorFilter !== null}
           />
         </Reveal>
+        </>
+        )}
       </main>
 
       {/* ---------------- footer ---------------- */}

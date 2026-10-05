@@ -917,7 +917,23 @@ export function CommitGraph({
       /* pointer capture is best-effort */
     }
     const rect = e.currentTarget.getBoundingClientRect()
-    miniJump(clamp((e.clientX - rect.left) / rect.width, 0, 1), true)
+    const frac = clamp((e.clientX - rect.left) / rect.width, 0, 1)
+    /* shift+click — precise locate: select the commit under the cursor
+     * (detail panel opens, node gets the locate flash) and center on it */
+    if (e.shiftKey && layout) {
+      const row = clamp(
+        Math.round(frac * (layout.nodes.length - 1)),
+        0,
+        layout.nodes.length - 1,
+      )
+      const nd = layout.nodes[row]
+      if (nd) {
+        onSelect(nd.commit.hash)
+        miniJump((nd.row + 0.5) / layout.nodes.length, true)
+        return
+      }
+    }
+    miniJump(frac, true)
   }
   const onMiniPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect()
@@ -1789,14 +1805,27 @@ export function CommitGraph({
                     (isHovered ? 1.3 : 1)
                   const inner = (
                     <>
+                      {/* attention-strong locate flash — breathing glow +
+                          twin radar rings (see globals.css); big enough
+                          to spot instantly in a 6k-commit graph */}
                       {isSelected && (
-                        <circle
-                          className="pulse-ring"
-                          r={r + 4}
-                          fill="none"
-                          stroke={color}
-                          strokeWidth={1.5}
-                        />
+                        <>
+                          <circle className="pulse-core" r={r * 1.7} fill={color} />
+                          <circle
+                            className="pulse-ring"
+                            r={r + 4}
+                            fill="none"
+                            stroke={color}
+                            strokeWidth={2.5}
+                          />
+                          <circle
+                            className="pulse-ring pulse-ring-lag"
+                            r={r + 4}
+                            fill="none"
+                            stroke={color}
+                            strokeWidth={2.5}
+                          />
+                        </>
                       )}
                       {halo && (
                         <circle
@@ -2053,7 +2082,7 @@ export function CommitGraph({
         <div
           className="relative h-[30px] shrink-0 touch-none select-none border-t bg-background"
           aria-label="History minimap — click or drag to travel through the commit history"
-          title="Minimap — every commit as a dot · click or drag to travel"
+          title="Minimap — every commit as a dot · click or drag to travel · shift+click to open the commit under the cursor"
           style={{ cursor: 'crosshair' }}
           onPointerDown={onMiniPointerDown}
           onPointerMove={onMiniPointerMove}
@@ -2083,20 +2112,40 @@ export function CommitGraph({
                 left: `clamp(64px, ${miniHover.px}px, calc(100% - 64px))`,
               }}
             >
-              <span className="font-mono text-foreground">
-                {format(
-                  new Date(miniHoverNode.commit.committedAt),
-                  'yyyy-MM-dd',
+              <div className="flex max-w-[300px] items-center gap-1.5">
+                {miniHoverNode.commit.aiAgent && (
+                  <span
+                    className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500"
+                    aria-hidden
+                  />
                 )}
-              </span>
-              <span className="mx-1 text-border">·</span>
-              <span className="font-mono text-muted-foreground">
-                {miniHoverNode.commit.shortHash}
-              </span>
-              <span className="mx-1 text-border">·</span>
-              <span className="text-muted-foreground">
-                #{miniHoverNode.row + 1} of {miniTotal.toLocaleString()}
-              </span>
+                <span className="truncate text-foreground">
+                  {miniHoverNode.commit.message}
+                </span>
+              </div>
+              <div className="mt-0.5 flex items-center text-muted-foreground">
+                <span className="font-mono">
+                  {format(
+                    new Date(miniHoverNode.commit.committedAt),
+                    'yyyy-MM-dd',
+                  )}
+                </span>
+                <span className="mx-1 text-border">·</span>
+                <span className="font-mono">
+                  {miniHoverNode.commit.shortHash}
+                </span>
+                <span className="mx-1 text-border">·</span>
+                <span>
+                  #{miniHoverNode.row + 1} of {miniTotal.toLocaleString()}
+                </span>
+                {visible &&
+                  miniHoverNode.row >= visible.startRow &&
+                  miniHoverNode.row <= visible.endRow && (
+                    <span className="ml-1.5 rounded-sm bg-emerald-500/15 px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
+                      in view
+                    </span>
+                  )}
+              </div>
             </div>
           )}
           {miniHover && (
@@ -2383,14 +2432,25 @@ function HorizontalGraph({
             (isHovered ? 1.3 : 1)
           const inner = (
             <>
+              {/* attention-strong locate flash (same as vertical mode) */}
               {isSelected && (
-                <circle
-                  className="pulse-ring"
-                  r={r + 4}
-                  fill="none"
-                  stroke={color}
-                  strokeWidth={1.5}
-                />
+                <>
+                  <circle className="pulse-core" r={r * 1.7} fill={color} />
+                  <circle
+                    className="pulse-ring"
+                    r={r + 4}
+                    fill="none"
+                    stroke={color}
+                    strokeWidth={2.5}
+                  />
+                  <circle
+                    className="pulse-ring pulse-ring-lag"
+                    r={r + 4}
+                    fill="none"
+                    stroke={color}
+                    strokeWidth={2.5}
+                  />
+                </>
               )}
               {halo && (
                 <circle

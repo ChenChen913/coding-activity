@@ -29,6 +29,7 @@ import {
 } from '@/lib/github'
 import { ChangedFiles } from './changed-files'
 import { Drawer } from 'vaul'
+import { useIsMobile } from '@/hooks/use-media-query'
 
 export interface CommitDetailPanelProps {
   repoId: string
@@ -87,6 +88,8 @@ export function CommitDetailPanel({
   isDefaulted = false,
 }: CommitDetailPanelProps) {
   const [copied, setCopied] = useState(false)
+  /** mobile-only drawer gate — see the comment at the Drawer below */
+  const isMobile = useIsMobile()
 
   const detailQ = useQuery({
     queryKey: ['git', 'commit', repoId, hash],
@@ -433,8 +436,11 @@ export function CommitDetailPanel({
         </motion.aside>
       )}
 
-      {/* ---- mobile: full-height sheet (drag to dismiss) ---- */}
-      {variant === 'sidebar' && (
+      {/* ---- mobile: full-height sheet (drag to dismiss) ----
+          gated by matchMedia, NOT CSS: the vaul Portal renders at <body>
+          level, so a md:hidden wrapper on the trigger cannot hide it and
+          the sheet would cover the desktop view on every selection ---- */}
+      {variant === 'sidebar' && isMobile && (
       <Drawer.Root
         open={Boolean(hash)}
         onOpenChange={(open) => {

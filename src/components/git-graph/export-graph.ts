@@ -155,8 +155,12 @@ function nodeSvg(
     parts.push(`<g opacity="${fx.dim ? 0.25 : 1}">`)
   }
   if (selected) {
+    /* static snapshot of the on-screen locate flash (globals.css):
+       soft glow disc + twin radar rings at different radii */
     parts.push(
-      `<circle cx="${f(x)}" cy="${f(y)}" r="${f(r + 4)}" fill="none" stroke="${color}" stroke-width="1.6" opacity="0.9"/>`,
+      `<circle cx="${f(x)}" cy="${f(y)}" r="${f(r * 1.7)}" fill="${color}" opacity="0.28"/>`,
+      `<circle cx="${f(x)}" cy="${f(y)}" r="${f(r + 4)}" fill="none" stroke="${color}" stroke-width="2.5" opacity="0.9"/>`,
+      `<circle cx="${f(x)}" cy="${f(y)}" r="${f(r + 9)}" fill="none" stroke="${color}" stroke-width="1.6" opacity="0.45"/>`,
     )
   }
   if (fx?.ring) {

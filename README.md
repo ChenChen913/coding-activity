@@ -12,12 +12,13 @@
 
 1. [这是什么](#这是什么)
 2. [快速开始](#快速开始)
-3. [核心概念：数据从哪里来](#核心概念数据从哪里来)
-4. [日常 AI 开发工作流：如何用这个项目监控自己](#日常-ai-开发工作流如何用这个项目监控自己)
-5. [与本地 Agent / IDE 结合](#与本地-agent--ide-结合)
-6. [GitHub 集成与推送监控](#github-集成与推送监控)
-7. [功能总览](#功能总览)
-8. [常见问题 FAQ](#常见问题-faq)
+3. [Demo 数据集：expressjs/express（可选）](#demo-数据集expressjsexpress可选)
+4. [核心概念：数据从哪里来](#核心概念数据从哪里来)
+5. [日常 AI 开发工作流：如何用这个项目监控自己](#日常-ai-开发工作流如何用这个项目监控自己)
+6. [与本地 Agent / IDE 结合](#与本地-agent--ide-结合)
+7. [GitHub 集成与推送监控](#github-集成与推送监控)
+8. [功能总览](#功能总览)
+9. [常见问题 FAQ](#常见问题-faq)
 
 ---
 
@@ -35,12 +36,30 @@
 ## 快速开始
 
 ```bash
+git clone https://github.com/ChenChen913/coding-activity.git
+cd coding-activity
 bun install        # 或 npm install
 bun run dev        # 或 npm run dev
 # 打开 http://localhost:3000
 ```
 
 不需要配置数据库——第一版完全从 Git 读取。
+
+**首次运行是干净的**：`repos/` 整个目录被 gitignore，克隆下来不包含任何演示数据。页面会自动回退到 `self`（本项目自己的真实历史），并展示引导卡片告诉你如何注册自己的仓库。想要 6,430 个 commit 的 express 演示数据集？见下一节。
+
+## Demo 数据集：expressjs/express（可选）
+
+演示数据不在仓库的工作区里，但它的**完整快照以 git bundle 随仓库分发**（`assets/demo/express.bundle`，约 10MB）——离线可恢复、跨重启可复现，这就是同步到 GitHub 的演示数据本体：
+
+```bash
+bash scripts/demo.sh status    # 查看当前状态
+bash scripts/demo.sh restore   # 从离线 bundle 恢复 repos/demo（零网络也能跑）
+bash scripts/demo.sh remove    # 删除演示数据，回到干净空间
+```
+
+- **本地部署不受虚拟数据影响**：`restore` 是显式的 opt-in，不 restore 就是干净的；`remove` 一键回到空状态。
+- 恢复后 origin 会自动指回 `github.com/expressjs/express`，Open on GitHub / Live Events / Releases 全部正常工作。
+- `bash scripts/demo.sh bundle` 供维护者从当前 repos/demo 刷新快照。
 
 ## 核心概念：数据从哪里来
 
@@ -126,7 +145,7 @@ git commit -m "feat: add login" -m "Co-Authored-By: Claude <noreply@anthropic.co
 - **任意本地仓库即插即看**——注册表指向仓库路径，不需要构建步骤、不需要数据库。
 - **零配置热更新**——你在 IDE 里 commit，刷新页面立即出现（API 实时读 git，无缓存层失真；事件流有 60s 缓存）。
 - **AI trailer 协议**——任何遵守 `Co-Authored-By` 惯例的 Agent（Claude Code、Cursor、Copilot、Aider…）都会被自动识别。
-- **可脚本化的 QA**——`scripts/qa8*.sh` 系列是本项目做自动化浏览器回归的 harness，可参考来写你自己的监控脚本。
+- **可脚本化的 QA**——开发期间的自动化浏览器回归直接用 `agent-browser` CLI 完成（完整记录见 `worklog.md`），仓库里不残留一次性脚本。
 
 ### 推荐玩法（想法）
 
@@ -182,9 +201,13 @@ git push -u origin main
 
 ## 功能总览
 
-- ✅ 全量 commit 图（自研轨道布局、zoom/pan、搜索、键盘导航、**横竖切换**）
-- ✅ PNG 导出（当前视图 2×/3×/4×、**全历史海报**、亮暗主题自适应）
-- ✅ Activity Timeline（月分组、类型/AI/年份过滤、窗口化渲染）
+- ✅ 全量 commit 图（自研轨道布局、zoom/pan、搜索、键盘导航、**横竖切换**、横向底部 commit 信息栏）
+- ✅ PNG 导出（当前视图 2×/3×/4×、**全历史海报 + commit 密度条**、亮暗主题自适应、所见即所得）
+- ✅ **全历史 Minimap 导航条**（每个 commit 一个点、诚实无抽样；hover 显示日期/message；shift+click 精确定位）
+- ✅ **搜索 / 类型筛选全链路联动**（图节点 ring/halo/降饱和 ↔ minimap 标记 ↔ 导出同步，四处视觉同源）
+- ✅ **Commit Density 卡片**（逐月密度直方图、AI 分层堆叠、点击月份跳转图）
+- ✅ **定位闪烁**（GitHub 事件 / 搜索 / 时间线点击 → 节点雷达双环 + 呼吸光晕，一眼锁定目标）
+- ✅ Activity Timeline（月分组、类型/AI/年份过滤、窗口化渲染、GitHub live 事件流）
 - ✅ Release Timeline（tag 泳道、patch 级明细、 annotated/lightweight 区分）
 - ✅ Commit Detail（numstat、diff **语法高亮**、**word-level 行内高亮**、深链）
 - ✅ AI 协作识别（真实 trailer，绝不猜测）
@@ -192,6 +215,9 @@ git push -u origin main
 - ✅ 亮/暗主题、移动端全屏 Sheet、390px 零溢出
 
 ## 常见问题 FAQ
+
+**Q：本地部署会被演示数据污染吗？**
+不会。`repos/` 被 gitignore，克隆仓库不会带任何演示数据；express 快照（`assets/demo/express.bundle`）只是一份静态文件，不 `bash scripts/demo.sh restore` 就永远不会被读进应用。
 
 **Q：会修改我的仓库吗？**
 不会。全部是只读 git 命令（log / show / diff / for-each-ref），连 `git status` 级别的写操作都没有。

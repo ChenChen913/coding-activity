@@ -208,6 +208,17 @@ export function CommitSearch({
               </p>
             )}
           </div>
+          {/* graph-linkage hint — makes the ring/dim behavior discoverable */}
+          <div
+            className="flex items-center gap-1.5 border-t px-2.5 py-1.5 text-[10px] text-muted-foreground"
+            aria-hidden
+          >
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full border-[1.5px] border-emerald-500" />
+            <span>
+              matches keep an emerald ring in the graph &amp; minimap — the
+              rest dims
+            </span>
+          </div>
         </div>
       )}
     </div>

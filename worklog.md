@@ -1148,3 +1148,110 @@ Stage Summary:
 4. 沙箱重启仍会清 repos/demo 与 .env.local —— 开工先跑
    ls repos/demo/.git && cat .env.local 体检
 5. self 仓库叙事：本次为第 15 个 Task commit（bbf1e91）
+
+---
+Task ID: 16
+Agent: main (Z.ai Code, user-requested round)
+Task: 用户四项要求 —— ①定位节点闪烁增强（频率+强度）②遗留文件/文档清理 ③虚拟数据与干净本地部署方案（bundle 同步 GitHub + 显式 opt-in）④落地 Task 15 移交建议（搜索提示/密度卡片/minimap 增强）+ 顺带修复桌面端 drawer 覆盖 bug + 推送 GitHub
+
+Work Log:
+- 16-a 定位闪烁增强（用户核心抱怨：闪的幅度不够大）：
+  → globals.css：pulse-ring 从 1.9s/×1.6 加强为 1.05s/×2.85；新增
+    pulse-ring-lag（-0.35s 相位差 → 每 ~0.35s 一次 ping）；新增
+    pulse-core（节点本体呼吸光晕 1×→1.55×、opacity 0.5→0.12）
+  → commit-graph.tsx 纵向/横向两处节点渲染：选中节点 = 呼吸光晕
+    (r*1.7) + 双雷达环 (r+4, stroke 1.5→2.5)
+  → export-graph.ts nodeSvg：PNG 选中节点同步为静态快照
+    （光晕盘 + r+4/r+9 双环），导出与屏上同源
+  → VLM 验证："YES, immediately spot… large size, bright glow,
+    expanding concentric rings, radar animation draws the eye
+    immediately"；仅提示外环轻微越过年份标签（可接受的定位动画）
+- 16-b 【QA 发现并修复·桌面端 drawer 覆盖 bug】：
+  → 症状：桌面 1280px 选中任意 commit，vaul 移动端全屏 Sheet
+    （fixed inset-x-0 bottom-0 z-50 h-[92dvh]）立即覆盖整个视口，
+    真实图被遮罩 —— 之前所有 VLM 截图看到的"弹层"就是它
+  → 根因：Drawer.Portal 渲染在 body 层，CSS md:hidden 无法约束
+    （vaul 经典陷阱），variant='sidebar' 下 Drawer 无移动端门控
+  → 修复：新增 src/hooks/use-media-query.ts（SSR 安全 matchMedia），
+    Drawer 挂载条件加 isMobile（<768px）；桌面回归 sidebar、移动端
+    drawer 行为保留（390px 实测 click→drawer 打开正常）
+- 16-c 遗留文件清理（用户要求：确保不误删）：
+  → 删除 scripts/qa8*.sh ×7（Phase 8 一次性 QA 脚本，UI 已大改，
+    全部失效；README 引用同步移除）
+  → 删除 download/phase4/5/6-*.png ×7（旧 UI 截图，已过时；
+    git 历史仍可找回；download/README.md 平台文件保留）
+  → 删除 tests/ ×3（沙箱平台测试 harness，硬编码
+    /home/z/my-project + fake bin，与产品无关，全仓 grep 零引用）
+  → 保留：.zscripts/（平台 dev/start 基础设施）、examples/websocket
+    （系统模板参考）、prisma/（平台预置，README 已声明无需 DB）、
+    mini-services/、download/README.md
+- 16-d 虚拟数据与干净部署方案（用户核心关切）：
+  → assets/demo/express.bundle（9.8MB git bundle，--all 全 refs）
+    提交进仓库并推送 GitHub = "虚拟数据同步到 GitHub"的落地；
+    跨沙箱重启可恢复、零网络可用
+  → scripts/demo.sh（status/restore/remove/bundle 四命令）：
+    restore 从 bundle 离线恢复 + 显式 fetch refs/remotes/origin/*
+    （否则只有 master，6,413≠6,430 commits，已修复验证）+
+    set-url origin 回 github.com/expressjs/express（remote 解析/
+    Live Events/深链全恢复）；remove 一键回干净空间
+  → 干净首跑（fresh clone）：repos/ 整体 gitignore → 页面自动
+    回退 self 仓库（rAF 包装的 auto-switch effect，无错误屏），
+    切换器中 demo 显示为禁用项 "not on disk · scripts/demo.sh
+    restore"；零仓库时显示 onboarding 卡片（注册指引 + demo 恢复指引）
+  → 实测：mv repos/demo 走 → 刷新 → 自动切 ChenChen913/
+    coding-activity（35 commits · 23 AI，真实数据）→ 恢复 → 6,430
+    commits 回归；restore 链路在 /tmp 验证 6,430 全等
+- 16-e 落地 Task 15 建议：
+  → 建议②搜索下拉联动提示：结果面板底部常驻
+    "matches keep an emerald ring in the graph & minimap — the
+    rest dims"（emerald 描边点 + 分隔线，实测 router→86 matches 时显示）
+  → 建议③密度条屏上化：新增 dashboard/density-card.tsx 全宽卡片
+    （insights 与 release timeline 之间）——逐月日历分桶（连续月份、
+    空月诚实留空）、AI 琥珀色自基线堆叠、peak 月 emerald 高亮、
+    hover tooltip（月+计数+AI）+ 摘要行（busiest month/N months/
+    quiet）、click 跳转该月最新 commit（selectAndReveal）、选中
+    commit 竖标线、年标签（奇数年 sm 以下隐藏防拥挤）、CSS
+    density-grow 入场动画（零 JS 开销）；express 实测 209 个月柱
+    + 2010-2026 年标签 + legend AI-assisted 计数
+  → 建议①minimap：tooltip 升级双行（首行 message 片段 + AI 琥珀点，
+    次行日期·hash·#row，hover 落在当前视口时 emerald "in view" 徽章）；
+    shift+click 精确定位（选中该 commit + 居中，title 提示更新）；
+    实测 75% 位置 → "Added tests for res.redirect() 2010-07-14 ·
+    7c2673fc · #4823 of 6,430"，shift+click → 选中 7c2673fc + 视口
+    居中 4,811–4,835 + 侧栏联动
+- 16-f 验证矩阵：
+  → 闪烁：桌面纵向/横向双模式 rings=2 cores=1；timeline 行点击 →
+    滚动回图（y 2315→91）+ 闪烁激活；动画周期 1.05s（computed style）
+  → drawer 修复：桌面 click 无弹层、sidebar 正常；390px click →
+    drawer 打开（行为保留）
+  → 密度卡：209 柱/17 年标签/legend 正确；hover tooltip "2017-04·4
+    commits"；click → 跳图 + pulse rings
+  → 搜索：提示行 + 30 结果 + footer chip + minimap 86 ticks（与
+    86 matches 严格一致）
+  → 干净首跑：无错误卡、自动切 self、demo 禁用项带恢复指引
+  → 移动端 390px：overflowX=0、密度卡可见
+  → lint 零错误；tsc 项目内零错误；dev.log 全 200；控制台仅
+    Fast Refresh 警告（dev 正常）
+- 16-g 提交推送 GitHub（第 16 个 Task commit）
+
+Stage Summary:
+- 用户三项显性要求全部闭环：闪烁一眼可见（VLM 确认 radar 效果
+  "draws the eye immediately"）、遗留文件清干净（17 个删除项 +
+  README 同步）、虚拟数据 opt-in 化且快照随仓库推送（干净首跑实测
+  通过，remove/restore 一键切换）
+- QA 意外收获：定位并修复桌面端 vaul drawer 覆盖 bug（matchMedia
+  门控，Portal 逃逸 CSS 的经典陷阱沉淀进注释）
+- Task 15 三条建议全部落地，密度卡片成为新的全宽洞察区（诚实空月
+  + AI 堆叠 + 点击跳图三联动）
+
+未解决问题或风险，建议下一阶段优先事项:
+1. 【下一步建议】密度卡片增强：按周/月粒度切换、hover 显示该月
+   top contributors、点击空月给提示；可复用 minimap 的 in-view 逻辑
+2. 【下一步建议】PNG 导出可选包含 minimap 全景条 + 密度卡片
+   （Task 14 建议②的延伸，poster 模式天然适合）
+3. 【下一步建议】demo.sh restore 后自动刷新页面（目前需手动
+   reload；可加 API invalidate 或简单提示文案）
+4. 沙箱重启仍会清 repos/demo 与 .env.local —— 现在可用
+   `bash scripts/demo.sh restore` 一键恢复（bundle 已随仓库提交，
+   不再依赖网络克隆）
+5. self 仓库叙事：本次为第 16 个 Task commit
