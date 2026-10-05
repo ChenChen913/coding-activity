@@ -104,6 +104,17 @@ export default function Home() {
     null,
   )
 
+  /** live search filter from the toolbar — matching commits keep an
+   *  emerald ring in the graph + ticks on the minimap, the rest dims */
+  const [searchFilter, setSearchFilter] = useState<{
+    query: string
+    hashes: string[]
+  } | null>(null)
+  const onSearchMatches = useCallback(
+    (m: { query: string; hashes: string[] } | null) => setSearchFilter(m),
+    [],
+  )
+
   /** graph orientation — lifted here so the page layout can react to it
    *  (horizontal mode pins the detail panel below the graph, always
    *  visible); persisted to localStorage, shared with the graph */
@@ -456,6 +467,7 @@ export default function Home() {
                   orientation={orientation}
                   onOrientationChange={toggleOrientation}
                   typeFilterKinds={typeFilter?.kinds ?? null}
+                  searchFilter={searchFilter}
                   commits={commits}
                   loading={commitsQuery.isLoading || !commitsMatchRepo}
                   fetching={commitsQuery.isFetching && commitsMatchRepo}
@@ -532,7 +544,11 @@ export default function Home() {
                           </button>
                         </span>
                       )}
-                      <CommitSearch commits={commits} onSelect={setSelectedHash} />
+                      <CommitSearch
+                        commits={commits}
+                        onSelect={setSelectedHash}
+                        onMatchesChange={onSearchMatches}
+                      />
                     </div>
                   }
                 />

@@ -11,6 +11,9 @@ import type { GraphCommit } from '@/lib/git/types'
 export interface CommitSearchProps {
   commits: GraphCommit[]
   onSelect: (hash: string) => void
+  /** live report of the current matches (null = query empty / no hits) —
+   *  powers the graph + minimap search linkage in the parent page */
+  onMatchesChange?: (m: { query: string; hashes: string[] } | null) => void
 }
 
 interface RankedResult {
@@ -26,7 +29,11 @@ const MAX_RESULTS = 30
  * prefix > contains). Clicking a result selects the commit and centers
  * the graph on it.
  */
-export function CommitSearch({ commits, onSelect }: CommitSearchProps) {
+export function CommitSearch({
+  commits,
+  onSelect,
+  onMatchesChange,
+}: CommitSearchProps) {
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -60,6 +67,24 @@ export function CommitSearch({ commits, onSelect }: CommitSearchProps) {
   }, [query, commits])
 
   const matchCount = results.length
+  const matchHashes = useMemo(
+    () => results.map((r) => r.commit.hash),
+    [results],
+  )
+
+  /* live match report — the page turns this into graph dimming + minimap
+   *  ticks. Kept in a ref so the effect below only reruns on real changes. */
+  const onMatchesRef = useRef(onMatchesChange)
+  useEffect(() => {
+    onMatchesRef.current = onMatchesChange
+  }, [onMatchesChange])
+  useEffect(() => {
+    const q = query.trim()
+    onMatchesRef.current?.(
+      q && matchHashes.length > 0 ? { query: q, hashes: matchHashes } : null,
+    )
+  }, [query, matchHashes])
+  useEffect(() => () => onMatchesRef.current?.(null), [])
 
   // close on outside click / Escape
   useEffect(() => {

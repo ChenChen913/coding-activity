@@ -99,6 +99,8 @@ function escAttr(s: string): string {
 interface TypeFx {
   /** halo stroke color for filter-matching nodes (null = filter off / no match) */
   halo: string | null
+  /** optional outer ring (search matches — emerald) */
+  ring?: string | null
   /** true when a filter is active and this commit is outside it */
   dim: boolean
 }
@@ -155,6 +157,11 @@ function nodeSvg(
   if (selected) {
     parts.push(
       `<circle cx="${f(x)}" cy="${f(y)}" r="${f(r + 4)}" fill="none" stroke="${color}" stroke-width="1.6" opacity="0.9"/>`,
+    )
+  }
+  if (fx?.ring) {
+    parts.push(
+      `<circle cx="${f(x)}" cy="${f(y)}" r="${f(r + 5.5)}" fill="none" stroke="${fx.ring}" stroke-width="1.5" opacity="0.9"/>`,
     )
   }
   if (fx?.halo) {
@@ -231,6 +238,8 @@ export interface ViewExportOptions extends ExportTheme {
   laneLabels: Array<{ name: string; isCurrent: boolean } | null> | null
   /** active type filter (null = off) — matches get a halo, the rest dim */
   typeKinds: CommitType[] | null
+  /** live search matches (null = off) — hits get an emerald ring, the rest dim */
+  searchHashes: string[] | null
   startRow: number
   endRow: number
   geo: Geo
@@ -243,7 +252,20 @@ export function buildViewSvg(layout: GraphLayout, o: ViewExportOptions): { svg: 
   const p = palette(o.dark)
   const { geo } = o
   const horiz = o.orientation === 'horizontal'
-  const fxOf = typeFxOf(o.typeKinds)
+  const baseFxOf = typeFxOf(o.typeKinds)
+  const sSet =
+    o.searchHashes && o.searchHashes.length > 0
+      ? new Set(o.searchHashes)
+      : null
+  /** search + type combine: a search miss dims even if the type matches;
+   *  a search hit keeps any type halo plus an emerald outer ring */
+  const fxOf = (c: GraphCommit): TypeFx => {
+    const base = baseFxOf(c)
+    if (!sSet) return base
+    return sSet.has(c.hash)
+      ? { ...base, ring: '#10b981', dim: false }
+      : { halo: null, ring: null, dim: true }
+  }
 
   const laneXOf = (lane: number) => LEFT_PAD + lane * geo.lw + geo.lw / 2
   const rowYOf = (row: number) => TOP_PAD + row * geo.rh + geo.rh / 2
@@ -584,7 +606,7 @@ export interface PosterExportOptions extends ExportTheme {
 }
 
 const POSTER_HEADER = 92
-const POSTER_FOOTER = 44
+const POSTER_FOOTER = 120
 
 export function buildPosterSvg(
   layout: GraphLayout,
@@ -735,10 +757,92 @@ export function buildPosterSvg(
   g.push('</g>')
   parts.push(g.join(''))
 
-  /* footer */
+  /* footer — activity density strip first: commit count per calendar
+   *  time bucket (oldest → newest, left → right — standard timeline
+   *  reading), amber = AI-assisted share stacked from the baseline.
+   *  Empty buckets stay empty: quiet periods are honest periods. */
+  const y0 = H - POSTER_FOOTER
   parts.push(
-    `<line x1="0" y1="${f(H - POSTER_FOOTER + 10)}" x2="${f(W)}" y2="${f(H - POSTER_FOOTER + 10)}" stroke="${p.line}"/>`,
-    `<text x="28" y="${f(H - POSTER_FOOTER + 30)}" font-family="${SANS}" font-size="11" fill="${p.faint}">Generated ${timeLabel(new Date().toISOString())} · AI Coding Activity · real git history, nothing fabricated</text>`,
+    `<line x1="0" y1="${f(y0 + 10)}" x2="${f(W)}" y2="${f(y0 + 10)}" stroke="${p.line}"/>`,
+  )
+  const stripX = 28
+  const stripW = Math.max(W - 56, 40)
+  const stripBase = y0 + 84
+  const stripTop = 52
+  const ta = oldest ? Date.parse(oldest) : NaN
+  const tb = newest ? Date.parse(newest) : NaN
+  const hasTime = Number.isFinite(ta) && Number.isFinite(tb) && tb > ta
+  if (hasTime) {
+    const B = Math.min(480, Math.max(60, Math.floor(stripW / 3)))
+    const counts = new Array<number>(B).fill(0)
+    const aiCounts = new Array<number>(B).fill(0)
+    for (const nd of layout.nodes) {
+      const t = Date.parse(nd.commit.committedAt)
+      const frac = Math.min(0.9999, Math.max(0, (t - ta) / (tb - ta)))
+      const i = Math.floor(frac * B)
+      counts[i]++
+      if (nd.commit.aiAgent) aiCounts[i]++
+    }
+    const maxC = Math.max(1, ...counts)
+    const bw = stripW / B
+    for (let i = 0; i < B; i++) {
+      if (counts[i] === 0) continue
+      const h = Math.max(2.5, (counts[i] / maxC) * stripTop)
+      const x = stripX + i * bw + bw * 0.14
+      const aiH = (aiCounts[i] / counts[i]) * h
+      if (aiCounts[i] > 0) {
+        parts.push(
+          `<rect x="${f(x)}" y="${f(stripBase - aiH)}" width="${f(bw * 0.72)}" height="${f(aiH)}" fill="#f59e0b" opacity="0.9"/>`,
+        )
+      }
+      parts.push(
+        `<rect x="${f(x)}" y="${f(stripBase - h)}" width="${f(bw * 0.72)}" height="${f(Math.max(h - aiH, 0))}" fill="${p.sub}" opacity="0.45"/>`,
+      )
+    }
+    parts.push(
+      `<line x1="${f(stripX)}" y1="${f(stripBase)}" x2="${f(stripX + stripW)}" y2="${f(stripBase)}" stroke="${p.line}"/>`,
+    )
+    /* year ticks along the strip */
+    const yA = new Date(ta).getUTCFullYear()
+    const yB = new Date(tb).getUTCFullYear()
+    let lastTick = -Infinity
+    for (let yr = yA + 1; yr <= yB; yr++) {
+      const tt = Date.UTC(yr, 0, 1)
+      if (tt <= ta || tt >= tb) continue
+      const x = stripX + ((tt - ta) / (tb - ta)) * stripW
+      if (x - lastTick < 26) continue
+      lastTick = x
+      parts.push(
+        `<line x1="${f(x)}" y1="${f(stripBase)}" x2="${f(x)}" y2="${f(stripBase + 4)}" stroke="${p.faint}"/>`,
+        `<text x="${f(x)}" y="${f(stripBase + 15)}" text-anchor="middle" font-family="${SANS}" font-size="9.5" fill="${p.faint}">${yr}</text>`,
+      )
+    }
+    /* caption + legend (skip caption when the poster is too narrow) */
+    const aiTotal = layout.nodes.reduce(
+      (a, nd) => a + (nd.commit.aiAgent ? 1 : 0),
+      0,
+    )
+    const leg1 = `AI-assisted (${aiTotal.toLocaleString('en-US')})`
+    const w2 = 'other commits'.length * 6.2
+    const w1 = leg1.length * 6.2
+    const legX2 = W - 28
+    const sw2 = legX2 - w2 - 14
+    const legX1 = sw2 - 6
+    const sw1 = legX1 - w1 - 6
+    if (stripX + 210 < sw1 - 20) {
+      parts.push(
+        `<text x="${f(stripX)}" y="${f(y0 + 26)}" font-family="${MONO}" font-size="10" font-weight="700" fill="${p.sub}" letter-spacing="2">COMMIT DENSITY OVER TIME</text>`,
+      )
+    }
+    parts.push(
+      `<rect x="${f(sw1)}" y="${f(y0 + 19)}" width="8" height="8" fill="#f59e0b"/>`,
+      `<text x="${f(legX1)}" y="${f(y0 + 26)}" text-anchor="end" font-family="${SANS}" font-size="10" fill="${p.sub}">${leg1}</text>`,
+      `<rect x="${f(sw2)}" y="${f(y0 + 19)}" width="8" height="8" fill="${p.sub}" opacity="0.45"/>`,
+      `<text x="${f(legX2)}" y="${f(y0 + 26)}" text-anchor="end" font-family="${SANS}" font-size="10" fill="${p.sub}">other commits</text>`,
+    )
+  }
+  parts.push(
+    `<text x="28" y="${f(y0 + 114)}" font-family="${SANS}" font-size="11" fill="${p.faint}">Generated ${timeLabel(new Date().toISOString())} · AI Coding Activity · real git history, nothing fabricated</text>`,
   )
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${parts.join('')}</svg>`

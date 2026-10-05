@@ -103,6 +103,9 @@ export interface CommitGraphProps {
   /** active commit-type filter (Conventions card) — commits outside the
    *  selected kinds are dimmed so card ↔ graph ↔ timeline agree */
   typeFilterKinds?: CommitType[] | null
+  /** live search filter from the toolbar: matching commits keep an
+   *  emerald ring, everything else dims (same language as type filter) */
+  searchFilter?: { query: string; hashes: string[] } | null
 }
 
 function clamp(v: number, min: number, max: number): number {
@@ -136,6 +139,7 @@ export function CommitGraph({
   orientation: orientationProp,
   onOrientationChange,
   typeFilterKinds,
+  searchFilter = null,
 }: CommitGraphProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
@@ -836,6 +840,33 @@ export function CommitGraph({
     return layout.nodes.findIndex((nd) => nd.commit.hash === selectedHash)
   }, [layout, selectedHash])
 
+  /** idle hover position on the minimap strip — drives the date tooltip:
+   *  which part of history lives under the cursor? */
+  const [miniHover, setMiniHover] = useState<{
+    frac: number
+    px: number
+  } | null>(null)
+  const miniHoverNode = useMemo(() => {
+    if (!miniHover || !layout || layout.nodes.length === 0) return null
+    const row = clamp(
+      Math.round(miniHover.frac * (layout.nodes.length - 1)),
+      0,
+      layout.nodes.length - 1,
+    )
+    return layout.nodes[row]
+  }, [miniHover, layout])
+  /** date span of the commits currently in the viewport (footer chip) */
+  const visibleDateRange = useMemo(() => {
+    if (!visible || !layout) return null
+    const a = layout.nodes[visible.startRow]?.commit.committedAt
+    const b = layout.nodes[visible.endRow]?.commit.committedAt
+    if (!a || !b) return null
+    return `${format(new Date(a), 'yyyy-MM-dd')} → ${format(
+      new Date(b),
+      'yyyy-MM-dd',
+    )}`
+  }, [visible, layout])
+
   /** fraction (0..1 along the strip) → center the main view on that row.
    *  Clicks glide (animateTo); drags track the pointer 1:1 with raw
    *  transforms for a scrubber feel. Geometry comes from the rendered
@@ -879,6 +910,7 @@ export function CommitGraph({
   const miniDragRef = useRef(false)
   const onMiniPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     miniDragRef.current = true
+    setMiniHover(null)
     try {
       e.currentTarget.setPointerCapture(e.pointerId)
     } catch {
@@ -888,10 +920,16 @@ export function CommitGraph({
     miniJump(clamp((e.clientX - rect.left) / rect.width, 0, 1), true)
   }
   const onMiniPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!miniDragRef.current) return
     const rect = e.currentTarget.getBoundingClientRect()
-    miniJump(clamp((e.clientX - rect.left) / rect.width, 0, 1), false)
+    const frac = clamp((e.clientX - rect.left) / rect.width, 0, 1)
+    if (miniDragRef.current) {
+      miniJump(frac, false)
+    } else {
+      /* idle hover → the date tooltip follows the cursor */
+      setMiniHover({ frac, px: e.clientX - rect.left })
+    }
   }
+  const onMiniPointerLeave = () => setMiniHover(null)
   const onMiniPointerEnd = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!miniDragRef.current) return
     miniDragRef.current = false
@@ -917,14 +955,26 @@ export function CommitGraph({
     () => (typeFilterKinds ? new Set<CommitType>(typeFilterKinds) : null),
     [typeFilterKinds],
   )
-  /** true when a type filter is active and this commit is outside it */
+  /** live search filter — same visual language as the type filter:
+   *  matches keep an emerald ring, everything else dims */
+  const searchSet = useMemo(
+    () =>
+      searchFilter && searchFilter.hashes.length > 0
+        ? new Set(searchFilter.hashes)
+        : null,
+    [searchFilter],
+  )
+  const searchFilterActive = !!searchSet
+  /** true when a filter (search and/or type) is active and this commit is
+   *  outside it — a search miss dims even if the type matches */
   const isDimmed = useCallback(
     (hash: string) => {
+      if (searchSet && !searchSet.has(hash)) return true
       if (!typeSet) return false
       const t = typeOf.get(hash)
       return t === undefined || !typeSet.has(t)
     },
-    [typeSet, typeOf],
+    [searchSet, typeSet, typeOf],
   )
   /** type-colored halo stroke for filter-matching nodes (null = off) */
   const typeHalo = useCallback(
@@ -939,6 +989,29 @@ export function CommitGraph({
     typeFilterKinds && typeFilterKinds.length > 0
       ? (TYPE_META[typeFilterKinds[0]]?.color ?? '#a8a29e')
       : null
+  /** emerald outer-ring stroke for search-matching nodes (null = off) */
+  const searchRing = useCallback(
+    (hash: string) =>
+      searchSet ? (searchSet.has(hash) ? '#10b981' : null) : null,
+    [searchSet],
+  )
+  /** search-match ticks for the minimap — one emerald sliver per matching
+   *  commit at its fraction of history (honest density: a query matching
+   *  800 commits shows 800 slivers, never a sampled subset) */
+  const miniSearchTicks = useMemo(() => {
+    if (!searchSet || !layout || layout.nodes.length === 0 || size.w === 0)
+      return null
+    const n = layout.nodes.length
+    const s: string[] = []
+    for (const nd of layout.nodes) {
+      if (!searchSet.has(nd.commit.hash)) continue
+      const x = ((nd.row + 0.5) / n) * size.w
+      s.push(
+        `<rect x="${x.toFixed(1)}" y="0" width="1.4" height="30" fill="#10b981" opacity="0.8"/>`,
+      )
+    }
+    return s.length > 0 ? s.join('') : ''
+  }, [searchSet, layout, size.w])
 
   /** lane → branch tip label (horizontal mode): the branch whose tip
    *  commit lives on that lane — the current branch wins, then local
@@ -1089,6 +1162,7 @@ export function CommitGraph({
               )
             : null,
           typeKinds: typeFilterKinds ?? null,
+          searchHashes: searchSet ? Array.from(searchSet) : null,
           startRow: visible.startRow,
           endRow: visible.endRow,
           geo: geoNow,
@@ -1110,7 +1184,7 @@ export function CommitGraph({
         setExporting(false)
       }
     },
-    [geo, visible, size.w, size.h, orientation, isDark, repoLabel, branchLabel, selectedHash, laneAreaW, effTx, effTy, commits.length, horiz, labelW, railH, railRows, laneLabels, typeFilterKinds],
+    [geo, visible, size.w, size.h, orientation, isDark, repoLabel, branchLabel, selectedHash, laneAreaW, effTx, effTy, commits.length, horiz, labelW, railH, railRows, laneLabels, typeFilterKinds, searchSet],
   )
 
   const exportPoster = useCallback(async () => {
@@ -1647,6 +1721,7 @@ export function CommitGraph({
                   onSelect={selectCommit}
                   isDimmed={isDimmed}
                   typeHalo={typeHalo}
+                  searchRing={searchRing}
                 />
               )}
               {!horiz && (
@@ -1707,6 +1782,7 @@ export function CommitGraph({
                   const isHovered = hoveredRow === nd.row
                   const dim = isDimmed(nd.commit.hash)
                   const halo = typeHalo(nd.commit.hash)
+                  const sRing = searchRing(nd.commit.hash)
                   const r =
                     geo.nodeR *
                     (nd.commit.isMerge ? 1.15 : 1) *
@@ -1983,6 +2059,7 @@ export function CommitGraph({
           onPointerMove={onMiniPointerMove}
           onPointerUp={onMiniPointerEnd}
           onPointerCancel={onMiniPointerEnd}
+          onPointerLeave={onMiniPointerLeave}
         >
           <svg
             className="pointer-events-none absolute inset-0"
@@ -1993,7 +2070,42 @@ export function CommitGraph({
             aria-hidden
           >
             <g dangerouslySetInnerHTML={{ __html: miniDots }} />
+            {searchFilterActive && miniSearchTicks !== null && (
+              <g dangerouslySetInnerHTML={{ __html: miniSearchTicks }} />
+            )}
           </svg>
+          {/* hover date tooltip — what part of history lives under the cursor */}
+          {miniHover && miniHoverNode && (
+            <div
+              role="status"
+              className="pointer-events-none absolute bottom-full z-20 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md border bg-popover px-2 py-1 text-[10px] font-medium tabular-nums shadow-md"
+              style={{
+                left: `clamp(64px, ${miniHover.px}px, calc(100% - 64px))`,
+              }}
+            >
+              <span className="font-mono text-foreground">
+                {format(
+                  new Date(miniHoverNode.commit.committedAt),
+                  'yyyy-MM-dd',
+                )}
+              </span>
+              <span className="mx-1 text-border">·</span>
+              <span className="font-mono text-muted-foreground">
+                {miniHoverNode.commit.shortHash}
+              </span>
+              <span className="mx-1 text-border">·</span>
+              <span className="text-muted-foreground">
+                #{miniHoverNode.row + 1} of {miniTotal.toLocaleString()}
+              </span>
+            </div>
+          )}
+          {miniHover && (
+            <div
+              className="pointer-events-none absolute inset-y-[3px] w-[2px] -translate-x-1/2 rounded-full bg-foreground/45"
+              style={{ left: `${miniHover.px}px` }}
+              aria-hidden
+            />
+          )}
           {/* reading-direction micro labels */}
           <span
             className="pointer-events-none absolute left-1 top-1/2 -translate-y-1/2 font-mono text-[8px] font-semibold uppercase tracking-wider text-muted-foreground/40"
@@ -2038,6 +2150,23 @@ export function CommitGraph({
           horizontal: the always-visible panel below) */}
       <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-t px-3">
         <div className="flex min-w-0 items-center gap-2">
+          {searchFilterActive && searchFilter && (
+            <span
+              role="status"
+              title={`Search filter — matching commits keep an emerald ring, everything else dims. ${searchFilter.hashes.length.toLocaleString()} of ${commits.length.toLocaleString()} commits match “${searchFilter.query}”.`}
+              className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300"
+            >
+              <span
+                className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500"
+                aria-hidden
+              />
+              <span className="truncate">
+                search: “{searchFilter.query}” ·{' '}
+                {searchFilter.hashes.length.toLocaleString()} matches — graph
+                dimmed
+              </span>
+            </span>
+          )}
           {typeFilterActive ? (
             <span
               role="status"
@@ -2062,7 +2191,7 @@ export function CommitGraph({
                 — non-matching commits dimmed
               </span>
             </span>
-          ) : (
+          ) : !searchFilterActive ? (
             <span
               className="hidden items-center gap-1.5 text-[10px] text-muted-foreground sm:inline-flex"
               aria-hidden
@@ -2073,7 +2202,7 @@ export function CommitGraph({
               <span className="text-border">·</span>
               <span>{horiz ? 'oldest →' : 'oldest ↓'}</span>
             </span>
-          )}
+          ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {visible && (
@@ -2084,6 +2213,17 @@ export function CommitGraph({
               </span>
               <span className="text-border">/</span>
               <span>{commits.length.toLocaleString()}</span>
+              {visibleDateRange && (
+                <>
+                  <span className="hidden text-border sm:inline">·</span>
+                  <span
+                    className="hidden text-muted-foreground/80 sm:inline"
+                    title="Date range of the commits currently in view"
+                  >
+                    {visibleDateRange}
+                  </span>
+                </>
+              )}
             </span>
           )}
           <AnimatePresence>
@@ -2141,6 +2281,7 @@ function HorizontalGraph({
   onSelect,
   isDimmed,
   typeHalo,
+  searchRing,
 }: {
   layout: GraphLayout
   geo: Geo
@@ -2155,6 +2296,8 @@ function HorizontalGraph({
   isDimmed: (hash: string) => boolean
   /** type-colored halo stroke for filter-matching commits (null = off) */
   typeHalo: (hash: string) => string | null
+  /** emerald outer-ring stroke for search-matching commits (null = off) */
+  searchRing: (hash: string) => string | null
 }) {
   const cw = geo.rh // column width along x (reuses the row height metric)
 
@@ -2233,6 +2376,7 @@ function HorizontalGraph({
           const isHovered = hoveredRow === nd.row
           const dim = isDimmed(nd.commit.hash)
           const halo = typeHalo(nd.commit.hash)
+          const sRing = searchRing(nd.commit.hash)
           const r =
             geo.nodeR *
             (nd.commit.isMerge ? 1.15 : 1) *
@@ -2255,6 +2399,15 @@ function HorizontalGraph({
                   stroke={halo}
                   strokeWidth={1.3}
                   opacity={0.85}
+                />
+              )}
+              {sRing && (
+                <circle
+                  r={r + 5.5}
+                  fill="none"
+                  stroke={sRing}
+                  strokeWidth={1.5}
+                  opacity={0.9}
                 />
               )}
               <circle
