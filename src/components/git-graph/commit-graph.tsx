@@ -15,7 +15,7 @@ import {
   AlertTriangle,
   ArrowDownToLine,
   ArrowLeftRight,
-  ArrowRightToLine,
+  ArrowLeftToLine,
   ArrowUpDown,
   ArrowUpToLine,
   ImageDown,
@@ -54,6 +54,7 @@ import {
 } from './layout'
 import { buildPosterSvg, buildViewSvg, downloadSvgAsPng } from './export-graph'
 import { CommitTypeBadge } from '@/components/commit-type-badge'
+import { parseCommitType, TYPE_META, type CommitType } from '@/lib/commit-type'
 
 const GUTTER_W = 44
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -63,6 +64,12 @@ const AXIS_H = 26
 /** horizontal layout: width of the viewport-fixed lane-label gutter
  *  (branch tips), carved out of the left edge — narrower on phones */
 const labelWOf = (w: number) => (w < 640 ? 76 : 112)
+/** horizontal layout: rows of commit-info chips in the bottom rail */
+const railRowsOf = (w: number) => (w < 640 ? 1 : 2)
+/** horizontal layout: height of the bottom commit-info rail — the
+ *  counterpart of the vertical message list (a tick for EVERY visible
+ *  commit + type/message chips wherever they fit, always on screen) */
+const railHOf = (w: number) => (railRowsOf(w) === 1 ? 48 : 76)
 
 export type Orientation = 'vertical' | 'horizontal'
 
@@ -92,6 +99,9 @@ export interface CommitGraphProps {
   orientation?: Orientation
   /** fired when the user toggles vertical / horizontal */
   onOrientationChange?: (o: Orientation) => void
+  /** active commit-type filter (Conventions card) — commits outside the
+   *  selected kinds are dimmed so card ↔ graph ↔ timeline agree */
+  typeFilterKinds?: CommitType[] | null
 }
 
 function clamp(v: number, min: number, max: number): number {
@@ -124,6 +134,7 @@ export function CommitGraph({
   branchLabel = null,
   orientation: orientationProp,
   onOrientationChange,
+  typeFilterKinds,
 }: CommitGraphProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
@@ -198,7 +209,10 @@ export function CommitGraph({
   const svgW = Math.max(60, size.w - labelW)
   const hTimeW = geo ? LEFT_PAD * 2 + commits.length * geo.rh : 0
   const hLanesH = geo ? TOP_PAD * 2 + geo.lw * Math.max((layout?.laneCount ?? 1) - 1, 0) + geo.lw : 0
-  const hGraphH = Math.max(0, size.h - AXIS_H)
+  /** bottom commit-info rail carves into the canvas (horizontal only) */
+  const railH = horiz ? railHOf(size.w) : 0
+  const railRows = railRowsOf(size.w)
+  const hGraphH = Math.max(0, size.h - AXIS_H - railH)
   const effTx = geo
     ? horiz
       ? hTimeW <= svgW || svgW === 0
@@ -276,8 +290,9 @@ export function CommitGraph({
   }, [horiz, onOrientationChange])
 
   /* ---------------- travel-direction feedback (horizontal) --------- */
-  /** flash "← older / newer →" while the user pans through time so the
-   *  reading direction of the axis is always obvious */
+  /** flash "← newer / older →" while the user pans through time so the
+   *  reading direction (latest at the left, past to the right) stays
+   *  obvious — dir 1 = traveling toward older commits */
   const showFlow = useCallback((dir: 1 | -1) => {
     if (flowTimer.current !== null) window.clearTimeout(flowTimer.current)
     flowTimer.current = window.setTimeout(() => {
@@ -349,9 +364,9 @@ export function CommitGraph({
     const { w, h } = sizeRef.current
     if (!lay) return 1
     if (horiz) {
-      // fit lanes vertically inside the axis-bounded graph area
+      // fit lanes vertically inside the axis- and rail-bounded area
       const lanesPx = lay.laneCount * 34
-      const availH = Math.max(60, h - AXIS_H - 24)
+      const availH = Math.max(60, h - AXIS_H - railHOf(w) - 24)
       return clamp(availH / Math.max(lanesPx, 1), MIN_SCALE, Math.min(MAX_SCALE, 1.35))
     }
     const narrow = w < 640
@@ -372,10 +387,10 @@ export function CommitGraph({
       const lanesH = TOP_PAD * 2 + g.lw * Math.max(lay.laneCount - 1, 0) + g.lw
       const { w, h } = sizeRef.current
       const svgW = Math.max(60, w - labelWOf(w))
-      const graphH = Math.max(0, h - AXIS_H)
+      const graphH = Math.max(0, h - AXIS_H - railHOf(w))
       setT({
         scale: fitScale,
-        tx: timeW <= svgW ? (svgW - timeW) / 2 : svgW - timeW, // newest stays visible on the right
+        tx: timeW <= svgW ? (svgW - timeW) / 2 : 0, // newest stays at the left edge
         ty: lanesH <= graphH ? (lanesH - graphH) / 2 : 0,
       })
       return
@@ -409,10 +424,10 @@ export function CommitGraph({
           const lanesH = TOP_PAD * 2 + g.lw * Math.max(lay.laneCount - 1, 0) + g.lw
           const { w, h } = sizeRef.current
           const svgW = Math.max(60, w - labelWOf(w))
-          const graphH = Math.max(0, h - AXIS_H)
+          const graphH = Math.max(0, h - AXIS_H - railHOf(w))
           setT({
             scale: fitScale,
-            tx: timeW <= svgW ? (svgW - timeW) / 2 : svgW - timeW,
+            tx: timeW <= svgW ? (svgW - timeW) / 2 : 0,
             ty: lanesH <= graphH ? (lanesH - graphH) / 2 : 0,
           })
         }
@@ -443,7 +458,7 @@ export function CommitGraph({
 
       if (horiz) {
         // screen x = label gutter + svg-local x = labelW + world time x + tx
-        const wx = LEFT_PAD + (n - 1 - row) * g.rh + g.rh / 2
+        const wx = LEFT_PAD + row * g.rh + g.rh / 2
         const w = sizeRef.current.w
         const lw = labelWOf(w)
         const svgW = Math.max(60, w - lw)
@@ -505,7 +520,8 @@ export function CommitGraph({
         // wheel travels through time, sideways deltas move across lanes
         setT((prev) => ({ ...prev, tx: prev.tx - e.deltaY, ty: prev.ty + e.deltaX }))
         // wheel down (deltaY > 0) → tx shrinks → visible world x grows →
-        // traveling toward newer commits (which live on the right)
+        // traveling toward OLDER commits (which live on the right) —
+        // the same "scroll down = back in time" semantic as the vertical list
         if (e.deltaY !== 0) showFlow(e.deltaY > 0 ? 1 : -1)
       } else {
         setT((prev) => ({ ...prev, ty: prev.ty + e.deltaY, tx: prev.tx + e.deltaX }))
@@ -532,7 +548,8 @@ export function CommitGraph({
         const dy = e.clientY - s.y
         if (Math.abs(dx) + Math.abs(dy) > 4) didPan.current = true
         // horizontal drag through time: content follows the finger —
-        // dragging right (dx > 0) pulls OLDER commits into view
+        // dragging right (dx > 0) pulls NEWER commits into view
+        // (the newest live at the left edge)
         if (Math.abs(dx) > 5 && Math.abs(dx) > Math.abs(dy) && horiz)
           showFlow(dx > 0 ? -1 : 1)
         if (moveScheduled.current) return
@@ -653,8 +670,8 @@ export function CommitGraph({
       }
       let delta: number
       if (horiz) {
-        // newest lives on the right: → moves toward newer (row − 1)
-        delta = e.key === 'ArrowRight' ? -1 : e.key === 'ArrowLeft' ? 1 : e.key === 'ArrowUp' ? -1 : 1
+        // newest lives at the left: → reads further into the past (row + 1)
+        delta = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowUp' ? -1 : 1
       } else {
         delta = e.key === 'ArrowDown' ? 1 : -1
       }
@@ -702,12 +719,11 @@ export function CommitGraph({
     const rect = el.getBoundingClientRect()
     const geoNow = computeGeo(lay, tRef.current.scale, commitsRef.current.length)
     const n = commitsRef.current.length
-    // column 0 (newest) occupies world x ∈ [LEFT_PAD, LEFT_PAD + rh);
-    // screen x = labelW + world x + tx → world x = screen x − labelW − tx
+    // row 0 (newest) occupies world x ∈ [LEFT_PAD, LEFT_PAD + rh) at the
+    // LEFT edge; screen x = labelW + world x + tx → world x = screen x − labelW − tx
     const x =
       clientX - rect.left - labelWOf(rect.width) - txRef.current - LEFT_PAD // world x
-    const col = Math.floor(x / geoNow.rh) // 0 = newest
-    const r = n - 1 - col
+    const r = Math.floor(x / geoNow.rh) // row = column, 0 = newest (left)
     return r >= 0 && r < n ? r : null
   }, [])
 
@@ -751,14 +767,20 @@ export function CommitGraph({
     let startRow: number
     let endRow: number
     if (horiz) {
-      // time runs along x: derive the visible column window from effTx
-      // (screen x = world x + tx, so the visible world range is
-      // [−tx, −tx + svgW] in svg-local space, right of the label gutter)
+      // time runs along x with row 0 (newest) at the LEFT edge — rows map
+      // 1:1 onto columns, so the visible world range [−tx, −tx + svgW]
+      // maps directly onto the row window (svg-local, right of the gutter)
       const cw = geo.rh
-      const colMin = Math.floor((-effTx - LEFT_PAD) / cw) - VISIBLE_BUFFER
-      const colMax = Math.ceil((-effTx + svgW - LEFT_PAD) / cw) + VISIBLE_BUFFER
-      startRow = clamp(n - 1 - colMax, 0, n - 1) // older boundary
-      endRow = clamp(n - 1 - colMin, 0, n - 1) // newer boundary
+      startRow = clamp(
+        Math.floor((-effTx - LEFT_PAD) / cw) - VISIBLE_BUFFER,
+        0,
+        n - 1,
+      ) // newest boundary
+      endRow = clamp(
+        Math.ceil((-effTx + svgW - LEFT_PAD) / cw) + VISIBLE_BUFFER,
+        0,
+        n - 1,
+      ) // oldest boundary
     } else {
       if (viewH === 0) return null
       startRow = Math.max(0, Math.floor((effTy - TOP_PAD) / geo.rh - 0.5) - VISIBLE_BUFFER)
@@ -774,6 +796,44 @@ export function CommitGraph({
 
   const hoveredCommit =
     hoveredRow !== null && layout ? layout.nodes[hoveredRow]?.commit : undefined
+
+  /** commit → parsed conventional type (memoized; powers filter dimming
+   *  and the type-colored halo on matching nodes) */
+  const typeOf = useMemo(() => {
+    const m = new Map<string, CommitType>()
+    if (!layout) return m
+    for (const nd of layout.nodes)
+      m.set(nd.commit.hash, parseCommitType(nd.commit.message))
+    return m
+  }, [layout])
+
+  const typeFilterActive = !!typeFilterKinds && typeFilterKinds.length > 0
+  const typeSet = useMemo(
+    () => (typeFilterKinds ? new Set<CommitType>(typeFilterKinds) : null),
+    [typeFilterKinds],
+  )
+  /** true when a type filter is active and this commit is outside it */
+  const isDimmed = useCallback(
+    (hash: string) => {
+      if (!typeSet) return false
+      const t = typeOf.get(hash)
+      return t === undefined || !typeSet.has(t)
+    },
+    [typeSet, typeOf],
+  )
+  /** type-colored halo stroke for filter-matching nodes (null = off) */
+  const typeHalo = useCallback(
+    (hash: string) => {
+      if (!typeSet) return null
+      const t = typeOf.get(hash)
+      return t !== undefined && typeSet.has(t) ? TYPE_META[t].color : null
+    },
+    [typeSet, typeOf],
+  )
+  const filterColor =
+    typeFilterKinds && typeFilterKinds.length > 0
+      ? (TYPE_META[typeFilterKinds[0]]?.color ?? '#a8a29e')
+      : null
 
   /** lane → branch tip label (horizontal mode): the branch whose tip
    *  commit lives on that lane — the current branch wins, then local
@@ -838,7 +898,7 @@ export function CommitGraph({
       if (!m.isYearStart && !showMonths) continue
       const x =
         LEFT_PAD +
-        (n - 1 - m.row) * geo.rh +
+        m.row * geo.rh +
         geo.rh / 2 +
         effTx +
         labelW // svg-local + label gutter = container x
@@ -855,19 +915,21 @@ export function CommitGraph({
     return out
   }, [layout, geo, visible, effTx, labelW, size.w, horiz])
 
-  /* ---------------- back-to-home (newest) floating button ----------- */
+  /* ---------------- back-to-home (newest) footer button ------------- */
   /** true once the viewport has travelled away from the newest commits:
-   *  vertical → scrolled down from the top; horizontal → panned left of
-   *  the right edge where the newest commits live */
+   *  vertical → scrolled down from the top; horizontal → panned right
+   *  of the left edge where the newest commits live */
   const awayFromHome = geo
     ? horiz
-      ? hTimeW > svgW && effTx - (svgW - hTimeW) > 120
+      ? hTimeW > svgW && effTx > 120
       : geo.totalH > viewH && effTy > 120
     : false
 
-  /** horizontal home position: newest pinned to the right edge of the
+  /** horizontal home position: newest pinned to the LEFT edge of the
    *  time svg (or centered when the whole history fits) */
-  const hHomeTx = hTimeW <= svgW ? (svgW - hTimeW) / 2 : svgW - hTimeW
+  const hHomeTx = hTimeW <= svgW ? (svgW - hTimeW) / 2 : 0
+  /** horizontal far end: the oldest commits pinned to the right edge */
+  const hOldestTx = hTimeW <= svgW ? (svgW - hTimeW) / 2 : svgW - hTimeW
 
   const goHome = useCallback(() => {
     if (horiz) {
@@ -880,7 +942,7 @@ export function CommitGraph({
       const svgW = Math.max(60, w - labelWOf(w))
       animateTo({
         ty: tyRef.current,
-        tx: timeW <= svgW ? (svgW - timeW) / 2 : svgW - timeW,
+        tx: timeW <= svgW ? (svgW - timeW) / 2 : 0,
       })
     } else {
       animateTo({ ty: 0 })
