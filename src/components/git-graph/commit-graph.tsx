@@ -30,6 +30,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
@@ -152,6 +153,9 @@ export function CommitGraph({
   const [orientationLocal, setOrientationLocal] =
     useState<Orientation>('vertical')
   const [exporting, setExporting] = useState(false)
+  /** view exports append the full-history minimap strip (when the history
+   *  overflows the viewport — same condition as the on-screen strip) */
+  const [exportWithMinimap, setExportWithMinimap] = useState(true)
   /** travel-direction feedback for horizontal mode (1 = toward newer) */
   const [flowHint, setFlowHint] = useState<1 | -1 | null>(null)
   const orientation = orientationProp ?? orientationLocal
@@ -1201,6 +1205,14 @@ export function CommitGraph({
           tx: effTx,
           ty: effTy,
           totalCommits: commits.length,
+          minimap:
+            exportWithMinimap && showMiniMap && visible
+              ? {
+                  startRow: visible.startRow,
+                  endRow: visible.endRow,
+                  selectedRow: selectedMiniRow ?? -1,
+                }
+              : null,
         })
         const dims = await downloadSvgAsPng(
           svg,
@@ -1216,7 +1228,7 @@ export function CommitGraph({
         setExporting(false)
       }
     },
-    [geo, visible, size.w, size.h, orientation, isDark, repoLabel, branchLabel, selectedHash, laneAreaW, effTx, effTy, commits.length, horiz, labelW, railH, railRows, laneLabels, typeFilterKinds, searchSet],
+    [geo, visible, size.w, size.h, orientation, isDark, repoLabel, branchLabel, selectedHash, laneAreaW, effTx, effTy, commits.length, horiz, labelW, railH, railRows, laneLabels, typeFilterKinds, searchSet, exportWithMinimap, showMiniMap, selectedMiniRow],
   )
 
   const exportPoster = useCallback(async () => {
@@ -1306,6 +1318,18 @@ export function CommitGraph({
               <DropdownMenuItem onClick={() => void exportPng(4)}>
                 Current view · 4×
               </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuCheckboxItem
+                checked={exportWithMinimap}
+                onCheckedChange={setExportWithMinimap}
+                disabled={!showMiniMap}
+                onSelect={(e) => e.preventDefault()}
+              >
+                Include history minimap
+                <span className="ml-auto text-[10px] text-muted-foreground">
+                  {showMiniMap ? 'window strip' : 'history fits view'}
+                </span>
+              </DropdownMenuCheckboxItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => void exportPoster()}>
                 Full history poster

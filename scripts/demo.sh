@@ -70,7 +70,7 @@ restore() {
     git clone --quiet "$UPSTREAM" "$DEMO_DIR"
   fi
   echo "restored: $(git -C "$DEMO_DIR" rev-list --count --all) commits @ HEAD $(git -C "$DEMO_DIR" rev-parse --short HEAD)"
-  echo "reload the page — the 'demo' repository appears in the switcher."
+  echo "done — the dashboard auto-detects the demo within seconds (it polls while the demo is missing); switch to 'express' in the repository selector."
 }
 
 remove() {

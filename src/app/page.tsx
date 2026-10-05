@@ -161,6 +161,13 @@ export default function Home() {
   const reposQuery = useQuery({
     queryKey: ['git', 'repos'],
     queryFn: () => fetchJson<{ repos: RepoListItem[] }>('/api/git/repos'),
+    // auto-detect while the demo dataset is missing: run
+    // `bash scripts/demo.sh restore` in a terminal and the page picks it
+    // up within seconds — no manual reload needed
+    refetchInterval: (query) =>
+      query.state.data?.repos.some((r) => r.id === 'demo' && !r.available)
+        ? 3_000
+        : false,
   })
 
   const overviewQuery = useQuery({
@@ -444,7 +451,7 @@ export default function Home() {
                         {r.name}
                       </span>
                       <span className="ml-2 text-[10px] text-muted-foreground/60">
-                        not on disk · scripts/demo.sh restore
+                        not on disk · demo.sh restore — auto-detected when done
                       </span>
                     </SelectItem>
                   ))}
@@ -510,7 +517,8 @@ export default function Home() {
                       bash scripts/demo.sh restore
                     </code>{' '}
                     clones expressjs/express (6,430+ commits, real merges)
-                    from the bundled offline snapshot.
+                    from the bundled offline snapshot — this page detects it
+                    automatically, no reload needed.
                   </p>
                 </div>
               </div>

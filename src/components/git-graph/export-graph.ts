@@ -250,6 +250,16 @@ export interface ViewExportOptions extends ExportTheme {
   tx: number
   ty: number
   totalCommits: number
+  /** optional full-history minimap strip appended below the view
+   *  (the SVG twin of the on-screen overview) — null = off */
+  minimap?: {
+    /** first row visible in the exported viewport window */
+    startRow: number
+    /** last row visible in the exported viewport window */
+    endRow: number
+    /** layout row of the selected commit (-1 = none selected) */
+    selectedRow: number
+  } | null
 }
 
 export function buildViewSvg(layout: GraphLayout, o: ViewExportOptions): { svg: string; w: number; h: number } {
@@ -590,8 +600,62 @@ export function buildViewSvg(layout: GraphLayout, o: ViewExportOptions): { svg: 
     }
   }
 
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${f(o.width)}" height="${f(o.height)}" viewBox="0 0 ${f(o.width)} ${f(o.height)}">${parts.join('')}</svg>`
-  return { svg, w: o.width, h: o.height }
+  /* ---- optional full-history minimap strip (the SVG twin of the
+          on-screen overview): every commit as a dot (AI amber, merges
+          larger), the emerald window marks exactly what this export
+          shows, search hits become emerald slivers, the selected commit
+          gets a foreground marker — same visual language as on screen */
+  let outH = o.height
+  if (o.minimap && o.totalCommits > 0) {
+    const m = o.minimap
+    const total = Math.max(1, o.totalCommits)
+    outH = o.height + MINIMAP_H
+    const stripTop = o.height + 12
+    const stripH = 22
+    const stripBot = stripTop + stripH
+    parts.push(
+      `<rect x="0" y="${f(o.height)}" width="${f(o.width)}" height="${f(MINIMAP_H)}" fill="${p.bg}"/>`,
+      `<line x1="0" y1="${f(o.height + 0.5)}" x2="${f(o.width)}" y2="${f(o.height + 0.5)}" stroke="${p.line}"/>`,
+      `<text x="${f(o.width - 10)}" y="${f(o.height + 8.5)}" text-anchor="end" font-family="${SANS}" font-size="8.5" fill="${p.faint}">full history · ${total.toLocaleString('en-US')} commits · emerald window = this export</text>`,
+    )
+    const lanes = Math.max(1, layout.laneCount)
+    for (const nd of layout.nodes) {
+      const x = ((nd.row + 0.5) / total) * o.width
+      const y = stripTop + ((nd.lane + 0.5) / lanes) * stripH
+      const color = nd.commit.aiAgent ? '#f59e0b' : laneColor(nd.lane)
+      const r = nd.commit.isMerge ? 1.25 : 0.85
+      parts.push(
+        `<circle cx="${f(x)}" cy="${f(y)}" r="${f(r)}" fill="${color}"/>`,
+      )
+    }
+    if (sSet) {
+      for (const nd of layout.nodes) {
+        if (!sSet.has(nd.commit.hash)) continue
+        const x = ((nd.row + 0.5) / total) * o.width
+        parts.push(
+          `<line x1="${f(x)}" y1="${f(stripTop - 2)}" x2="${f(x)}" y2="${f(stripBot + 2)}" stroke="#10b981" stroke-width="1.4"/>`,
+        )
+      }
+    }
+    const wx = (m.startRow / total) * o.width
+    const ww = Math.max(2, ((m.endRow - m.startRow + 1) / total) * o.width)
+    parts.push(
+      `<rect x="${f(wx)}" y="${f(stripTop - 3)}" width="${f(ww)}" height="${f(stripH + 6)}" rx="2" fill="${p.accent}" fill-opacity="0.1" stroke="${p.accent}" stroke-width="1.5"/>`,
+    )
+    if (m.selectedRow >= 0) {
+      const x = ((m.selectedRow + 0.5) / total) * o.width
+      parts.push(
+        `<line x1="${f(x)}" y1="${f(stripTop - 2)}" x2="${f(x)}" y2="${f(stripBot + 2)}" stroke="${p.fg}" stroke-width="1.6" opacity="0.75"/>`,
+      )
+    }
+    parts.push(
+      `<text x="10" y="${f(stripTop + stripH / 2 + 3)}" font-family="${MONO}" font-size="8" font-weight="600" letter-spacing="1" fill="${p.faint}">NEW</text>`,
+      `<text x="${f(o.width - 10)}" y="${f(stripTop + stripH / 2 + 3)}" text-anchor="end" font-family="${MONO}" font-size="8" letter-spacing="1" fill="${p.faint}">OLD</text>`,
+    )
+  }
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${f(o.width)}" height="${f(outH)}" viewBox="0 0 ${f(o.width)} ${f(outH)}">${parts.join('')}</svg>`
+  return { svg, w: o.width, h: outH }
 }
 
 function monthShort(m: number): string {
@@ -611,6 +675,9 @@ export interface PosterExportOptions extends ExportTheme {
 
 const POSTER_HEADER = 92
 const POSTER_FOOTER = 120
+
+/** height of the optional minimap strip appended to view exports */
+const MINIMAP_H = 40
 
 export function buildPosterSvg(
   layout: GraphLayout,

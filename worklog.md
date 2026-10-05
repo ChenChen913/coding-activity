@@ -1329,3 +1329,89 @@ Stage Summary:
    ls repos/demo/.git && cat .env.local 体检；demo 可用
    bash scripts/demo.sh restore 一键恢复
 4. self 仓库叙事：本次为第 17 个 Task commit
+
+---
+Task ID: 18
+Agent: main (Z.ai Code, user-requested round)
+Task: 落地 Task 17 移交建议 —— ①密度卡片 Month/Week 粒度切换 + hover top contributors ②demo.sh restore 后页面自动感知（3s 轮询）③view 导出可选附加全历史 minimap 全景条（含搜索 ticks/选中标记/视口窗）④深 lane 定位自动微调 zoom 评估 ⑤QA 矩阵 + 推送 GitHub
+
+Work Log:
+- 18-a 环境体检：repos/demo 与 .env.local 完好；Task 17 修复
+  （a10ea1d）已提交并推送；dev server 全 200
+- 18-b 密度卡片双粒度（dashboard/density-card.tsx 重写）：
+  → bucketize(commit, 'month'|'week')：week = 周一对齐的日历周
+    （Date(y,m,d±n) 日期构造，杜绝 local-midnight 毫秒运算的 DST
+    漂移；归桶 days 先 round 再 floor/7，±1h DST 周免疫）
+  → Bucket 通用化：label（YYYY-MM / YYYY-MM-DD 周起点）+
+    isFirstOfYear（月=1 月桶；周=年份变化桶）+ top contributors
+    （每桶 Map 聚合取 top 3）
+  → BarSlot memo 组件：hover state 在父级、bar props 全稳定 →
+    902 根周柱 hover 零重渲（780+ 按钮场景的关键优化）
+  → ToggleGroup Month/Week 切换（header 右侧，h-5 紧凑档）；
+    副标题/legend/aria-label/summary/footer 文案全部随粒度切换
+    （"busiest week: 2009-11-30 · 163 commits · 902 weeks total,
+    419 quiet"）
+  → tooltip 升级双行：首行 label·count(+AI)，次行 top
+    contributors "visionmedia ×38 · csausdev ×29"（truncate 防溢出）
+  → 选中 commit 竖标线改为桶区间匹配（周/月双模式通用）
+- 18-c demo 恢复自动感知（Task 16 建议③）：
+  → page.tsx reposQuery 增加 refetchInterval：demo 不可用时每
+    3s 轮询（repos API 仅做 isGitRepo 探测，轻量）；可用后停轮询
+  → 切换器禁用项文案 + onboarding 卡片注明 "auto-detected,
+    no reload needed"；demo.sh restore 输出同步更新
+  → 端到端实测：mv 走 demo → 页面自动降级 self（37 commits）→
+    dev.log 每 3s 一次 /api/git/repos → mv 回来 → 不刷新页面，
+    切换器 5s 内自动出现 "expressjs/express · 6,430 commits"
+    可点击 → 切回后 integrity 6,430=6,430 ✓
+- 18-d view 导出可选 minimap 全景条（export-graph.ts + commit-graph.tsx）：
+  → ViewExportOptions.minimap {startRow, endRow, selectedRow}；
+    MINIMAP_H=40 附加高度（divider + caption + 22px 点带）
+  → 条内元素与屏上 minimap 同语言：全量 dot（AI 琥珀、merge 大
+    1.25）、86 条搜索命中 emerald slivers、emerald 视口窗
+    （fill-opacity 0.1 + 1.5 stroke）、选中 commit 前景竖线、
+    NEW/OLD 微标签、"full history · 6,430 commits · emerald
+    window = this export" caption
+  → 导出菜单新增 DropdownMenuCheckboxItem（默认勾选）；
+    !showMiniMap 时禁用并提示 "history fits view"
+  → 实测开关精确生效：勾选 850×570 vs 取消 850×530（差值
+    恰为 MINIMAP_H=40）；横向+搜索态导出 VLM 确认 ticks/lane/
+    无裁剪三问全过
+- 18-e 深 lane 定位自动微调 zoom 评估（Task 17 建议）：
+  → 结论：暂不实施。Task 17 修复后定位已是最优几何位置；自动
+    缩放会让被定位节点变小 + 时间轴同时重排，"定位时视图突变"
+    副作用明确大于收益。记录在案供后续复议
+- 18-f 验证矩阵：
+  → 密度卡：Month 176 柱 / Week 902 桶 486 柱（419 quiet）；
+    tooltip 双行（2009-11 · 67 commits | visionmedia ×38 ·
+    csausdev ×29）；点击 peak 月 → 图跳 6,167–6,191/6,430
+    （2009-12-02 → 2009-11-30）+ pulse 激活 + Back to latest
+  → 导出：菜单 5 项结构正确；2× 下载成功；含/不含 minimap
+    高度差精确；VLM×3 全过（week 模式布局、minimap 条元素、
+    横向+搜索 ticks）
+  → 移动端 390px：overflowX=0、toggle 可用、VLM 确认无溢出
+  → 控制台零运行时错误；lint 零错误；tsc 项目内零错误；
+    dev.log 最近 50 条全 200/304
+- 18-g 提交推送 GitHub（第 18 个 Task commit）
+
+Stage Summary:
+- 密度卡片从"月度"升级为"双粒度洞察"：周视图揭示 2009-11-30
+  单周 163 commits 的真实爆发节奏，top contributors 让每个桶
+  自带"谁在干"的答案，且 902 柱 hover 零重渲
+- demo 数据恢复闭环补完：CLI restore → 页面 3s 内自动感知 →
+  用户零操作成本，"干净空间"与"演示数据"两全
+- 导出 PNG 获得空间上下文：任何视口切片都自带"你在 15 年历史
+  的哪里"的全景定位条（窗口/搜索命中/选中标记三合一），
+  WYSIWYG 语义从"所见"延伸到"所在"
+
+未解决问题或风险，建议下一阶段优先事项:
+1. 【下一步建议】密度卡片 hover tooltip 显示该桶 top commit
+   的 message（复用 minimap tooltip 模式）；桶粒度记忆到
+   localStorage（跨会话保持用户偏好）
+2. 【下一步建议】周粒度下年标签较密（17 个），可在 Week 模式
+   仅显示偶数年（复用月模式 odd-year hidden 逻辑的对称策略）
+3. 【下一步建议】minimap 导出条支持 poster 模式（当前仅 view
+   模式；poster 自带全历史，但窗标记可标注"生成时的视口"）
+4. 沙箱重启仍会清 repos/demo 与 .env.local —— 开工先跑
+   ls repos/demo/.git && cat .env.local 体检；demo 可用
+   bash scripts/demo.sh restore 一键恢复（页面自动感知）
+5. self 仓库叙事：本次为第 18 个 Task commit

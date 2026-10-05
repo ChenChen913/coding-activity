@@ -3,41 +3,62 @@
 /**
  * AI Coding Activity — Commit Density over time
  *
- * Every commit bucketed by calendar month (oldest → newest, left → right).
- * Amber segments stack from the baseline = the AI-assisted share (real
- * trailer evidence, never guessed); empty months stay empty — quiet
- * periods are honest periods. Hover a month for exact counts, click to
- * jump the graph to that month's latest commit.
+ * Every commit bucketed by calendar month OR calendar week (Monday-aligned,
+ * oldest → newest, left → right). Amber segments stack from the baseline =
+ * the AI-assisted share (real trailer evidence, never guessed); empty
+ * buckets stay empty — quiet periods are honest periods. Hover a bucket for
+ * exact counts and that bucket's top contributors, click to jump the graph
+ * to that bucket's latest commit.
  */
 
-import { useMemo, useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 import { BarChart3, MousePointerClick, Sparkles } from 'lucide-react'
 
 import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  ToggleGroup,
+  ToggleGroupItem,
+} from '@/components/ui/toggle-group'
 import type { GraphCommit } from '@/lib/git/types'
 
-interface MonthBucket {
-  year: number
-  month: number // 0–11
+type Granularity = 'month' | 'week'
+
+interface Bucket {
   count: number
   aiCount: number
   /** newest commit hash in this bucket (click target) */
   lastHash: string | null
   /** committedAt of that newest commit */
   lastAt: number
+  /** 2024-03 (month) or 2024-03-11 (week start) */
+  label: string
+  /** year of the bucket's start date — drives the year axis labels */
+  year: number
+  /** first bucket of a new calendar year (month mode: the January bar) */
+  isFirstOfYear: boolean
+  /** top contributors inside this bucket, count-desc, max 3 */
+  top: { name: string; count: number }[]
 }
 
 export interface DensityCardProps {
   commits: GraphCommit[]
   loading: boolean
-  /** jump the graph to a commit (click on a month bar) */
+  /** jump the graph to a commit (click on a bucket bar) */
   onSelect: (hash: string) => void
-  /** committedAt of the currently selected commit (marker under its month) */
+  /** committedAt of the currently selected commit (marker under its bucket) */
   selectedAt?: string | null
 }
 
-function bucketize(commits: GraphCommit[]): MonthBucket[] {
+const pad2 = (n: number) => String(n).padStart(2, '0')
+
+/** local midnight of t (DST-safe anchor) */
+function midnight(t: number): number {
+  const d = new Date(t)
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+}
+
+function bucketize(commits: GraphCommit[], g: Granularity): Bucket[] {
   if (commits.length === 0) return []
   let minT = Infinity
   let maxT = -Infinity
@@ -50,26 +71,84 @@ function bucketize(commits: GraphCommit[]): MonthBucket[] {
   }
   if (!Number.isFinite(minT) || maxT < minT) return []
 
-  const dA = new Date(minT)
-  const dB = new Date(maxT)
-  const start = new Date(dA.getFullYear(), dA.getMonth(), 1).getTime()
-  const end = new Date(dB.getFullYear(), dB.getMonth(), 1).getTime()
-  const months: MonthBucket[] = []
-  for (let t = start; t <= end; t = new Date(t).setMonth(new Date(t).getMonth() + 1)) {
-    months.push({ year: new Date(t).getFullYear(), month: new Date(t).getMonth(), count: 0, aiCount: 0, lastHash: null, lastAt: 0 })
+  const buckets: Bucket[] = []
+  const authors: Map<string, number>[] = []
+
+  const push = (label: string, year: number, isFirstOfYear: boolean) => {
+    buckets.push({
+      count: 0,
+      aiCount: 0,
+      lastHash: null,
+      lastAt: 0,
+      label,
+      year,
+      isFirstOfYear,
+      top: [],
+    })
+    authors.push(new Map())
   }
-  const idx = (t: number) => {
+
+  if (g === 'week') {
+    // Monday-aligned local midnights; Date(y, m, d ± n) normalizes
+    // across DST (never do millisecond arithmetic on local midnights)
+    const m0 = new Date(midnight(minT))
+    const dow = (m0.getDay() + 6) % 7 // Mon=0 … Sun=6
+    const startD = new Date(
+      m0.getFullYear(),
+      m0.getMonth(),
+      m0.getDate() - dow,
+    )
+    const endMid = midnight(maxT)
+    let prevYear = -1
+    for (let d = startD; d.getTime() <= endMid; ) {
+      const y = d.getFullYear()
+      push(
+        `${y}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`,
+        y,
+        y !== prevYear,
+      )
+      prevYear = y
+      d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 7)
+    }
+  } else {
+    const dA = new Date(minT)
+    const dB = new Date(maxT)
+    for (
+      let t = new Date(dA.getFullYear(), dA.getMonth(), 1).getTime();
+      t <= new Date(dB.getFullYear(), dB.getMonth(), 1).getTime();
+      t = new Date(t).setMonth(new Date(t).getMonth() + 1)
+    ) {
+      const d = new Date(t)
+      const y = d.getFullYear()
+      push(`${y}-${pad2(d.getMonth() + 1)}`, y, d.getMonth() === 0)
+    }
+  }
+
+  // bucket index of t, per granularity (all date math, DST-safe)
+  const m0 = new Date(midnight(minT))
+  const dow0 = (m0.getDay() + 6) % 7
+  const weekStart = new Date(
+    m0.getFullYear(),
+    m0.getMonth(),
+    m0.getDate() - dow0,
+  ).getTime()
+  const dA = new Date(minT)
+  const idx = (t: number): number => {
+    if (g === 'week') {
+      const days = Math.round((midnight(t) - weekStart) / 86_400_000)
+      return Math.floor(days / 7)
+    }
     const d = new Date(t)
     return (
-      (d.getFullYear() - dA.getFullYear()) * 12 +
-      (d.getMonth() - dA.getMonth())
+      (d.getFullYear() - dA.getFullYear()) * 12 + (d.getMonth() - dA.getMonth())
     )
   }
+
   for (const c of commits) {
     const t = Date.parse(c.committedAt)
     if (!Number.isFinite(t)) continue
     const i = idx(t)
-    const b = months[i]
+    const b = buckets[i]
     if (!b) continue
     b.count += 1
     if (c.aiAgent) b.aiCount += 1
@@ -77,12 +156,17 @@ function bucketize(commits: GraphCommit[]): MonthBucket[] {
       b.lastAt = t
       b.lastHash = c.hash
     }
+    const m = authors[i]
+    m.set(c.author, (m.get(c.author) ?? 0) + 1)
   }
-  return months
+  for (let i = 0; i < buckets.length; i++) {
+    buckets[i].top = [...authors[i].entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([name, count]) => ({ name, count }))
+  }
+  return buckets
 }
-
-const MONTH_LABEL = (y: number, m: number) =>
-  `${y}-${String(m + 1).padStart(2, '0')}`
 
 export function DensityCard({
   commits,
@@ -90,9 +174,13 @@ export function DensityCard({
   onSelect,
   selectedAt,
 }: DensityCardProps) {
+  const [granularity, setGranularity] = useState<Granularity>('month')
   const [hovered, setHovered] = useState<number | null>(null)
 
-  const buckets = useMemo(() => bucketize(commits), [commits])
+  const buckets = useMemo(
+    () => bucketize(commits, granularity),
+    [commits, granularity],
+  )
   const stats = useMemo(() => {
     let ai = 0
     let peak = -1
@@ -109,19 +197,32 @@ export function DensityCard({
   const max = Math.max(1, ...buckets.map((b) => b.count))
   const B = buckets.length
 
-  /** month index of the selected commit (marker under the strip) */
+  /** bucket index of the selected commit (marker under the strip) */
   const selectedBucket = useMemo(() => {
     if (!selectedAt || B === 0) return null
     const d = new Date(selectedAt)
     if (Number.isNaN(d.getTime())) return null
-    return (
-      buckets.findIndex(
-        (b) => b.year === d.getFullYear() && b.month === d.getMonth(),
+    const t = d.getTime()
+    for (let i = 0; i < buckets.length; i++) {
+      const b = buckets[i]
+      // every bucket covers the month/week starting at its label date
+      const start = Date.parse(
+        granularity === 'week' ? b.label : `${b.label}-01`,
       )
-    )
-  }, [selectedAt, buckets, B])
+      const next = i + 1 < buckets.length
+        ? Date.parse(
+            granularity === 'week'
+              ? buckets[i + 1].label
+              : `${buckets[i + 1].label}-01`,
+          )
+        : Infinity
+      if (t >= start && t < next) return i
+    }
+    return null
+  }, [selectedAt, buckets, B, granularity])
 
   const hoveredBucket = hovered !== null ? buckets[hovered] : null
+  const unitWord = granularity === 'week' ? 'week' : 'month'
 
   return (
     <Card className="overflow-hidden p-0 transition-[border-color,box-shadow] duration-200 hover:border-foreground/25 hover:shadow-sm">
@@ -136,30 +237,63 @@ export function DensityCard({
               Commit Density
             </div>
             <div className="text-[11px] text-muted-foreground">
-              how this repository breathes over time — one bar per month
+              how this repository breathes over time — one bar per{' '}
+              {unitWord}
             </div>
           </div>
         </div>
-        {/* legend — honest totals, same language as the poster export */}
-        {!loading && commits.length > 0 && (
-          <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1 text-[10.5px] text-muted-foreground">
-            <span className="inline-flex items-center gap-1.5">
-              <span className="h-2 w-2 rounded-[2px] bg-amber-500" aria-hidden />
-              AI-assisted ({stats.ai.toLocaleString()})
-            </span>
-            <span className="inline-flex items-center gap-1.5">
-              <span
-                className="h-2 w-2 rounded-[2px] bg-foreground/[0.15]"
-                aria-hidden
-              />
-              other commits
-            </span>
-            <span className="inline-flex items-center gap-1 text-muted-foreground/70">
-              <MousePointerClick className="h-3 w-3" aria-hidden />
-              click a month to jump
-            </span>
-          </div>
-        )}
+
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          {/* legend — honest totals, same language as the poster export */}
+          {!loading && commits.length > 0 && (
+            <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1 text-[10.5px] text-muted-foreground">
+              <span className="inline-flex items-center gap-1.5">
+                <span
+                  className="h-2 w-2 rounded-[2px] bg-amber-500"
+                  aria-hidden
+                />
+                AI-assisted ({stats.ai.toLocaleString()})
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span
+                  className="h-2 w-2 rounded-[2px] bg-foreground/[0.15]"
+                  aria-hidden
+                />
+                other commits
+              </span>
+              <span className="inline-flex items-center gap-1 text-muted-foreground/70">
+                <MousePointerClick className="h-3 w-3" aria-hidden />
+                click a {unitWord} to jump
+              </span>
+            </div>
+          )}
+          {/* granularity switch */}
+          <ToggleGroup
+            type="single"
+            value={granularity}
+            onValueChange={(v) => {
+              if (v === 'month' || v === 'week') {
+                setGranularity(v)
+                setHovered(null)
+              }
+            }}
+            aria-label="Density granularity"
+            className="rounded-md border bg-background p-0.5"
+          >
+            <ToggleGroupItem
+              value="month"
+              className="h-5 gap-1 px-2.5 text-[10.5px] font-medium"
+            >
+              Month
+            </ToggleGroupItem>
+            <ToggleGroupItem
+              value="week"
+              className="h-5 gap-1 px-2.5 text-[10.5px] font-medium"
+            >
+              Week
+            </ToggleGroupItem>
+          </ToggleGroup>
+        </div>
       </div>
 
       {/* chart */}
@@ -188,80 +322,50 @@ export function DensityCard({
               {hoveredBucket && (
                 <div
                   role="status"
-                  className="pointer-events-none absolute -top-2 z-10 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-md border bg-popover px-2 py-1 font-mono text-[10px] tabular-nums text-popover-foreground shadow-md"
+                  className="pointer-events-none absolute -top-2 z-10 -translate-x-1/2 -translate-y-full rounded-md border bg-popover px-2 py-1 font-mono text-[10px] tabular-nums text-popover-foreground shadow-md"
                   style={{
-                    left: `clamp(56px, ${(((hovered ?? 0) + 0.5) / B) * 100}%, calc(100% - 56px))`,
+                    left: `clamp(64px, ${(((hovered ?? 0) + 0.5) / B) * 100}%, calc(100% - 64px))`,
                   }}
                 >
-                  {MONTH_LABEL(hoveredBucket.year, hoveredBucket.month)}
-                  <span className="mx-1 text-border">·</span>
-                  <span className="font-semibold">
-                    {hoveredBucket.count.toLocaleString()}
-                  </span>{' '}
-                  commit{hoveredBucket.count === 1 ? '' : 's'}
-                  {hoveredBucket.aiCount > 0 && (
-                    <span className="ml-1 inline-flex items-center gap-0.5 text-amber-600 dark:text-amber-400">
-                      <Sparkles
-                        className="h-2.5 w-2.5"
-                        aria-hidden
-                      />
-                      {hoveredBucket.aiCount} AI
-                    </span>
+                  <div className="whitespace-nowrap">
+                    {hoveredBucket.label}
+                    <span className="mx-1 text-border">·</span>
+                    <span className="font-semibold">
+                      {hoveredBucket.count.toLocaleString()}
+                    </span>{' '}
+                    commit{hoveredBucket.count === 1 ? '' : 's'}
+                    {hoveredBucket.aiCount > 0 && (
+                      <span className="ml-1 inline-flex items-center gap-0.5 text-amber-600 dark:text-amber-400">
+                        <Sparkles
+                          className="h-2.5 w-2.5"
+                          aria-hidden
+                        />
+                        {hoveredBucket.aiCount} AI
+                      </span>
+                    )}
+                  </div>
+                  {hoveredBucket.top.length > 0 && (
+                    <div className="mt-0.5 max-w-[300px] truncate text-muted-foreground">
+                      {hoveredBucket.top
+                        .map((a) => `${a.name} ×${a.count}`)
+                        .join(' · ')}
+                    </div>
                   )}
                 </div>
               )}
 
               <div className="flex h-[96px] items-end gap-[1px]">
-                {buckets.map((b, i) => {
-                  const hPct = b.count === 0 ? 0 : (b.count / max) * 100
-                  const aiPct =
-                    b.count === 0 ? 0 : (b.aiCount / b.count) * hPct
-                  const isPeak = i === stats.peak
-                  return (
-                    <button
-                      key={i}
-                      type="button"
-                      disabled={!b.lastHash}
-                      onClick={() => b.lastHash && onSelect(b.lastHash)}
-                      onMouseEnter={() => setHovered(i)}
-                      onMouseLeave={() => setHovered(null)}
-                      onFocus={() => setHovered(i)}
-                      onBlur={() => setHovered(null)}
-                      aria-label={`${MONTH_LABEL(b.year, b.month)}: ${b.count} commits${b.aiCount > 0 ? `, ${b.aiCount} AI-assisted` : ''}${b.lastHash ? ' — jump to this month' : ''}`}
-                      title={
-                        b.lastHash
-                          ? `${MONTH_LABEL(b.year, b.month)} — ${b.count} commits · click to jump`
-                          : `${MONTH_LABEL(b.year, b.month)} — no commits`
-                      }
-                      className="group relative flex h-full min-w-[1px] flex-1 cursor-pointer flex-col justify-end outline-none focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      {hPct > 0 && (
-                        <>
-                          {aiPct > 0 && (
-                            <span
-                              className="density-bar block w-full rounded-b-[1px] bg-amber-500"
-                              style={{
-                                height: `${aiPct}%`,
-                                animationDelay: `${Math.min(i * 0.004, 0.4)}s`,
-                              }}
-                            />
-                          )}
-                          <span
-                            className={`density-bar block w-full transition-colors ${
-                              isPeak
-                                ? 'bg-emerald-600/80'
-                                : 'bg-foreground/[0.16] group-hover:bg-emerald-500/70'
-                            } ${aiPct > 0 ? 'rounded-t-[1px]' : 'rounded-[1px]'}`}
-                            style={{
-                              height: `${Math.max(hPct - aiPct, 2)}%`,
-                              animationDelay: `${Math.min(i * 0.004, 0.4)}s`,
-                            }}
-                          />
-                        </>
-                      )}
-                    </button>
-                  )
-                })}
+                {buckets.map((b, i) => (
+                  <BarSlot
+                    key={i}
+                    b={b}
+                    i={i}
+                    isPeak={i === stats.peak}
+                    max={max}
+                    onSelect={onSelect}
+                    onHover={setHovered}
+                  />
+                ))}
               </div>
 
               {/* selected-commit marker — same language as the minimap */}
@@ -276,12 +380,12 @@ export function DensityCard({
               )}
             </div>
 
-            {/* year labels — one label per January boundary, aligned to
-                its bar column; odd years hide on small screens to avoid
+            {/* year labels — one label at each year boundary bar, aligned
+                to its bar column; odd years hide on small screens to avoid
                 crowding (they reappear ≥sm) */}
             <div className="relative mt-1.5 h-3.5">
               {buckets.map((b, i) =>
-                b.month === 0 ? (
+                b.isFirstOfYear ? (
                   <span
                     key={i}
                     className={`absolute top-0 -translate-x-1/2 font-mono text-[9px] tabular-nums text-muted-foreground/70 ${
@@ -300,27 +404,27 @@ export function DensityCard({
               {hoveredBucket ? (
                 <span>
                   <span className="font-semibold text-foreground">
-                    {MONTH_LABEL(hoveredBucket.year, hoveredBucket.month)}
+                    {hoveredBucket.label}
                   </span>{' '}
                   · {hoveredBucket.count.toLocaleString()} commits
                   {hoveredBucket.aiCount > 0 &&
                     ` · ${hoveredBucket.aiCount} AI-assisted`}
+                  {hoveredBucket.top[0] &&
+                    ` · top: ${hoveredBucket.top[0].name} ×${hoveredBucket.top[0].count}`}
                 </span>
               ) : stats.peak >= 0 ? (
                 <span>
-                  busiest month:{' '}
+                  busiest {unitWord}:{' '}
                   <span className="font-semibold text-foreground">
-                    {MONTH_LABEL(
-                      buckets[stats.peak].year,
-                      buckets[stats.peak].month,
-                    )}
+                    {buckets[stats.peak].label}
                   </span>{' '}
                   · {buckets[stats.peak].count.toLocaleString()} commits ·{' '}
-                  {B.toLocaleString()} months total, {stats.quiet} quiet
+                  {B.toLocaleString()} {unitWord}s total, {stats.quiet} quiet
                 </span>
               ) : null}
               <span className="text-muted-foreground/70">
-                calendar months · browser-local time
+                calendar {granularity === 'week' ? 'weeks (Mon)' : 'months'}{' '}
+                · browser-local time
               </span>
             </div>
           </>
@@ -329,3 +433,69 @@ export function DensityCard({
     </Card>
   )
 }
+
+/**
+ * Slot wrapper — carries the stable per-bar props into the memoized
+ * BucketBar. The index lives here (not inside BucketBar) so memo works:
+ * hovering changes only `hovered` in the parent, BucketBar props stay
+ * referentially equal and ~780 week bars skip re-render entirely.
+ */
+const BarSlot = memo(function BarSlot({
+  b,
+  i,
+  isPeak,
+  max,
+  onSelect,
+  onHover,
+}: {
+  b: Bucket
+  i: number
+  isPeak: boolean
+  max: number
+  onSelect: (hash: string) => void
+  onHover: (i: number | null) => void
+}) {
+  const hPct = b.count === 0 ? 0 : (b.count / max) * 100
+  const aiPct = b.count === 0 ? 0 : (b.aiCount / b.count) * hPct
+  const delay = Math.min(i * 0.004, 0.4)
+  return (
+    <button
+      type="button"
+      disabled={!b.lastHash}
+      onClick={() => b.lastHash && onSelect(b.lastHash)}
+      onMouseEnter={() => onHover(i)}
+      onMouseLeave={() => onHover(null)}
+      onFocus={() => onHover(i)}
+      onBlur={() => onHover(null)}
+      aria-label={`${b.label}: ${b.count} commits${b.aiCount > 0 ? `, ${b.aiCount} AI-assisted` : ''}${b.lastHash ? ' — jump to this bucket' : ''}`}
+      title={
+        b.lastHash
+          ? `${b.label} — ${b.count} commits · click to jump`
+          : `${b.label} — no commits`
+      }
+      className="group relative flex h-full min-w-[1px] flex-1 cursor-pointer flex-col justify-end outline-none focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      {hPct > 0 && (
+        <>
+          {aiPct > 0 && (
+            <span
+              className="density-bar block w-full rounded-b-[1px] bg-amber-500"
+              style={{ height: `${aiPct}%`, animationDelay: `${delay}s` }}
+            />
+          )}
+          <span
+            className={`density-bar block w-full transition-colors ${
+              isPeak
+                ? 'bg-emerald-600/80'
+                : 'bg-foreground/[0.16] group-hover:bg-emerald-500/70'
+            } ${aiPct > 0 ? 'rounded-t-[1px]' : 'rounded-[1px]'}`}
+            style={{
+              height: `${Math.max(hPct - aiPct, 2)}%`,
+              animationDelay: `${delay}s`,
+            }}
+          />
+        </>
+      )}
+    </button>
+  )
+})
