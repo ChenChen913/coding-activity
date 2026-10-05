@@ -1255,3 +1255,77 @@ Stage Summary:
    `bash scripts/demo.sh restore` 一键恢复（bundle 已随仓库提交，
    不再依赖网络克隆）
 5. self 仓库叙事：本次为第 16 个 Task commit
+
+---
+Task ID: 17
+Agent: main (Z.ai Code, user-requested round)
+Task: 修复用户反馈 bug —— 横向视图下点击 "commits" 标签（底部 rail chips /
+lane gutter 标签 / minimap shift+click）时部分节点定位不准
+
+Work Log:
+- 17-a 根因定位（commit-graph.tsx "center on externally selected
+  commit" effect 的横向分支，原 line 464-485）：
+  → 【主因·rail 遮挡死区】可见性检查用 `y < 60 || y > h - 60`（整画布
+    +60px 边距），但横向画布底部有 104px 的 COMMITS rail（z-[6] 覆盖层，
+    桌面 railRows=3）+ 顶部 26px 时间轴。节点 screen-y ∈ (h−104, h−60]
+    这 44px 死区带内的节点实际被 rail 半透明层挡住，代码却判定"可见"
+    → 不触发重定位 → 点击 chip 后节点完全不可见 = 用户看到的"定位不准"
+  → 【次因·中心偏低 39px】重定位目标 `ty = AXIS_H + wy - h/2` 把节点
+    送到整画布垂直中点，而真实可用带 [AXIS_H, h−railH] 的中心比它高
+    (railH−AXIS_H)/2 = 39px —— 触发了重定位的节点也普遍偏低
+  → 几何体系核实：节点 canvas-y = AXIS_H + (TOP_PAD+lane·lw+lw/2) −
+    effTy（HorizontalGraph 外层 g translate(0 AXIS_H)）；effTy 在
+    lanes 溢出时 clamp [0, hLanesH−hGraphH]、适配时 pin 居中（pin 时
+    全部 lane 必然可见，无死区可能 → 修复只需处理 clamp 情形）
+- 17-b 修复实施（横向分支重写）：
+  → 可见带改为 band = [AXIS_H, h − railHOf(w)]（真实 lane 区域）
+  → 边距 my = max(20, min(nodeR+14, bandH/4))（pulse rings 完整可见）
+  → 越界判定 `y < bandTop+my || y > bandBot−my`；重定位目标
+    `ty = wy − bandH/2`（节点精确落在带中心，非画布中心）
+  → 注释沉淀死区根因（44px 带 + 39px 偏移的两个数字）供后续维护
+- 17-c agent-browser 端到端验证（桌面 1280×860，demo=express 6,430
+  commits，All branches → laneCount=7）：
+  → 复现路径考古：master 过滤下 laneCount=5、zoom 220% 时 hLanesH
+    402≈hGraphH 400 → pin 模式无死区；**All branches + zoom 220%
+    （lw=74.8、溢出 151.6px）才复现**；用 API commits + 页内复刻
+    layout.ts lane 算法精确定位深 lane commits（lane 5 → row
+    2089/2133/2226 原屏 y=451 恰落旧死区；lane 6 → row 2219 原
+    y=526 画布外）
+  → minimap shift+click × 4 深lane样本：全部 inBand ✓ —— lane 5
+    三样本 cy 451→300（旧代码不动·被 rail 挡 vs 新代码拉到 clamp
+    极限最优位）、lane 6 cy 526→375；cx=671 稳定居中 ✓
+  → rail chips 采样 × 5（当前视口含深 lane）：浅 lane 原位可见不动
+    （cy 75/150）、深 lane 重定位 cy=300，全部 inBand ✓
+  → lane gutter 标签点击 × 4（branch tip）：master/dependabot/
+    release/ci-workflows 均正确定位 ✓
+  → VLM 截图三问全过（节点可见/未被 rail 遮挡/位于图形区中部）
+  → 移动端 390×844：rail 48px 单行，4 chips 全 inBand、overflowX=0 ✓
+  → 垂直模式回归：点击节点 → pulse 视口内可见（共用 effect 的
+    else 分支未被触碰）✓
+  → 验证过程沉淀：合成 WheelEvent 的 deltaX 可被 handler 收到但
+    CDP 真实 mouse wheel 才改 tx（ty 轴在 dx 参数不生效的浏览器里
+    需用 minimap/按钮路径覆盖）；minimap shift+click 的 frac =
+    (row+0.5)/n 精确映射
+- 17-d lint 零错误；tsc 项目内零错误；dev.log 全 200；控制台仅
+  Fast Refresh 警告（dev 正常）
+
+Stage Summary:
+- 横向视图"点击 commits 标签定位不准"根因闭环：44px rail 遮挡死区
+  （主因）+ 39px 中心偏移（次因），修复后所有定位路径（rail chips、
+  lane gutter 标签、minimap shift+click、搜索/timeline 联动）在
+  桌面/移动端全部命中可见带，深 lane 节点被拉到 clamp 几何极限的
+  最优位置（无法完美居中是 lanes 溢出量的物理极限，已是最优解）
+- 几何语义修正为"lane band"（axis 与 rail 之间）而非整画布 —— 与
+  visible 窗口、effTy clamp、pin 居中的既有语义完全对齐
+
+未解决问题或风险，建议下一阶段优先事项:
+1. 【下一步建议】Task 16 遗留三条仍然有效：密度卡片周/月粒度切换、
+   PNG 导出可选含 minimap+密度条、demo.sh restore 后自动刷新页面
+2. 【本任务观察】lanes 溢出量小时（如 master 过滤 zoom 220% 仅
+   溢出 2px）clamp 让重定位几乎无感 —— 属几何极限而非 bug；可考虑
+   在深 lane 定位时自动微调 zoom（例如保证 bandH ≥ 4×lane 间距）
+   作为后续增强，但需谨慎避免"定位时视图突变"的副作用
+3. 沙箱重启仍会清 repos/demo 与 .env.local —— 开工先跑
+   ls repos/demo/.git && cat .env.local 体检；demo 可用
+   bash scripts/demo.sh restore 一键恢复
+4. self 仓库叙事：本次为第 17 个 Task commit

@@ -472,9 +472,25 @@ export function CommitGraph({
         const lane = lay.laneOf.get(selectedHash) ?? 0
         const wy = TOP_PAD + lane * g.lw + g.lw / 2
         const y = AXIS_H + wy - tyRef.current
+        // The lanes live in a BAND between the top time axis (AXIS_H) and
+        // the bottom commit rail (railH). Visibility and re-centering must
+        // both use that band — an earlier version checked y against the
+        // full canvas (60px margins), so nodes in the (h−railH, h−60] zone
+        // were judged "visible" while actually hidden behind the rail
+        // (railH is 104px on desktop > 60px margin), and the re-center
+        // target (canvas middle) landed 39px below the band center.
+        const bandTop = AXIS_H
+        const bandBot = h - railHOf(w)
+        const bandH = Math.max(0, bandBot - bandTop)
+        // breathing room so the pulse rings clear both strips
+        const my = Math.max(20, Math.min(g.nodeR + 14, bandH / 4))
         const next: { ty?: number; tx?: number } = {}
         if (x < lw + 100 || x > w - 100) next.tx = svgW / 2 - wx
-        if (y < 60 || y > h - 60) next.ty = AXIS_H + wy - h / 2
+        if (y < bandTop + my || y > bandBot - my) {
+          // bring the node to the CENTER of the lane band:
+          // screen y = AXIS_H + wy − ty = AXIS_H + bandH/2
+          next.ty = wy - bandH / 2
+        }
         if (next.ty !== undefined || next.tx !== undefined) {
           animateTo({
             ty: next.ty ?? tyRef.current,
