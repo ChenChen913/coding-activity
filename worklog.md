@@ -1074,3 +1074,77 @@ Stage Summary:
 4. 沙箱重启仍会清 repos/demo 与 .env.local —— 开工先跑
    ls repos/demo/.git && cat .env.local 体检
 5. self 仓库叙事：本次为第 14 个 Task commit（3a32e89）
+
+---
+Task ID: 15
+Agent: main (Z.ai Code, cron round)
+Task: 落地 Task 14 移交建议 —— ①Minimap hover 日期 tooltip + 视口日期范围文本 ②图内搜索全链路联动（节点 ring/dim + minimap 标记 + footer chip + 导出同步）③Poster 导出 commit 密度条 + QA 矩阵 + 推送 GitHub
+
+Work Log:
+- 15-a 环境体检：repos/demo 与 .env.local 完好、dev server 200、
+  dev.log 全 200 —— 无沙箱重置损失
+- 15-b 基线 QA：页面正常渲染（33 svgs）、控制台无运行时错误
+- 15-c Minimap hover 日期 tooltip（建议①）：
+  → idle pointermove（非拖拽）记录 {frac, px}，tooltip 浮于条上方
+    （bottom-full + clamp(64px…) 防溢出），内容 = 日期 · shortHash ·
+    #row of total；伴随 2px 光标竖线；拖拽/按下时清除，离开时清除
+  → footer 位置 chip 增加可见窗口日期范围
+    "1–40/6,430 · 2026-10-01 → 2026-05-17"（sm 以上显示）
+- 15-d 搜索全链路联动（建议③，复用 typeFilter dim 机制）：
+  → CommitSearch 新增 onMatchesChange 回调（ref 存回调避免 render
+    期更新 ref 的 lint 违规；卸载时上报 null）
+  → page.tsx 状态提升 searchFilter {query, hashes} → CommitGraph
+  → 节点/消息行/rail chip：搜索未命中 dim（与类型筛选 OR 组合：
+    命中类型但搜索未命中仍 dim）；命中节点加 emerald 外环 r+5.5
+    （type halo r+2.5 之外，选中 pulse r+4 之外，三环不冲突）
+  → minimap：每个命中 commit 一条 emerald 竖标记（诚实密度：
+    86 匹配 = 86 条，绝不抽样）
+  → footer emerald chip "search: 'query' · N matches — graph dimmed"
+    （带 title 说明；与类型 chip 共存，方向图例让位）
+  → 双模式节点渲染（纵向/横向）+ HorizontalGraph 增加 searchRing prop
+- 15-e Poster 密度条（建议②）：
+  → POSTER_FOOTER 44→120；时间分桶（60-480 桶按宽度自适应），
+    桶内 commit 计数为柱高，AI commits 琥珀色自基线堆叠，空桶留空
+    （安静期是诚实的安静期）；年刻度 + 图例（AI-assisted (3) ·
+    other commits）+ COMMIT DENSITY OVER TIME 标题（窄 poster 自动
+    隐藏防重叠）
+  → 诚实性核实：git 直查 demo 仓库恰 3 个 Claude co-authored
+    commits（2026-02/08/09），与图例 "AI-assisted (3)" 一致
+    （Task 14 记录的 "4 AI 点" 系旧误计）
+- 15-f 验证矩阵：
+  → tooltip：hover 50% → "2011-10-07 · 7710db45 · #3216 of 6,430"；
+    75% 位置正确；VLM 确认无遮挡
+  → 搜索 "router"：86 匹配 → footer chip + 86 minimap ticks +
+    40 dimmed 节点（可见窗口恰好无命中故全 dim）+ 41 rail chips dim；
+    "4797abfa" → 1 ring + 1 tick + 39 rail dim；清空 → 全部恢复
+  → 导出 WYSIWYG：横向视图导出含 1 emerald ring + 40 节点 dim +
+    40 rail dim（fxOf 组合逻辑：搜索未命中覆盖类型命中）
+  → poster 导出：SVG 274×16001，密度条含 316 灰柱 + 3 琥珀柱 +
+    年刻度 2010-2025 + 图例；VLM 四项全过（直方图可读/年标签可见/
+    图例可见/无裁剪重叠）
+  → 移动端 390px：overflowX=0、strip 356px、chip 正常
+  → VLM×4 全过；控制台零运行时错误（仅 Fast Refresh 陈旧警告）；
+    lint 零错误；tsc 项目内零错误
+- 15-g 提交推送：bbf1e91 → GitHub main（第 15 个 Task commit）
+
+Stage Summary:
+- 搜索从"一次性定位"升级为持续视觉筛选：输入即联动图本体
+  （ring+dim）、minimap（诚实标记）、footer（状态 chip）、导出
+  （WYSIWYG），与类型筛选共用视觉语言且可叠加
+- Minimap 补齐"时间感"：hover 即答"这个位置是哪年哪天哪个
+  commit"；footer 日期范围让当前视口的时间跨度一目了然
+- Poster 获得"活动叙事"收尾：底部密度条把 15 年 commit 节奏
+  （含 AI 占比）浓缩成一条时间轴，空档诚实留空
+- 诚实性红线再验证：图例 AI 数 = git trailer 直查数（3=3）
+
+未解决问题或风险，建议下一阶段优先事项:
+1. 【下一步建议】Minimap 增强：tooltip 中显示该位置 commit 的
+   message 片段；视口窗 hover 显示起止日期；shift+click 精确定位
+   最近 commit（当前是 row 取整）
+2. 【下一步建议】搜索下拉与图联动提示：下拉面板底部加一行
+   "matches are highlighted in the graph & minimap"，让联动可发现
+3. 【下一步建议】密度条屏上化：Dashboard 增加同款 commit density
+   卡片（复用 poster 分桶逻辑，按月/周聚合 + AI 分层堆叠柱状图）
+4. 沙箱重启仍会清 repos/demo 与 .env.local —— 开工先跑
+   ls repos/demo/.git && cat .env.local 体检
+5. self 仓库叙事：本次为第 15 个 Task commit（bbf1e91）
