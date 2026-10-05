@@ -1003,3 +1003,74 @@ Task 13 追加（同轮后续，ed031b1 之后）:
   → commit: 3 行 rail 增强（本条与 ed031b1 同属 Task 13 轮次）
 - 剩余建议移交下轮：PNG 导出补 rail/halo；timeline 筛选行的
   "在图中高亮"提示文案
+
+---
+Task ID: 14
+Agent: main (Z.ai Code, cron round)
+Task: 落地 Task 13 移交建议 —— ①PNG 导出对齐屏上视图（横版 lane 标签列 + 底部 rail + 类型筛选 halo/降饱和）②类型筛选"在图中高亮"提示文案 ③新功能：全历史 Minimap 导航条（scrubber）+ 修复首跳竞态 + 推送 GitHub
+
+Work Log:
+- 14-a PNG 导出补齐（buildViewSvg 重写，"WYSIWYG" 承诺兑现）：
+  → ViewExportOptions 新增 labelW / railH / railRows / laneLabels /
+    typeKinds；nodeSvg 增加 halo + dimmed 参数
+  → 横版：左侧 lane 标签沟槽（分支名 chip + 色点 + HEAD 加粗 + L<n> 诚实
+    回退）；底部 rail 完整四级密度复刻（slot<14 刻度 / <46 色点 /
+    <90 色点+hash / ≥90 徽章+消息+高缩放 author）；COMMITS 标题格；
+    ← newest / oldest → 方向锚点；clipPath 保证 chip 不滑入沟槽
+  → 纵向：消息列表补类型徽章（badgeSvg，TYPE_META 色板）+ 分支药丸
+    （本地=lane 色底白字 / 远端=描边）+ 屏上同款时间格式 HH:mm/yyyy-MM-dd
+  → 筛选态：匹配节点 r+2.5 色环（与屏上一致）、非匹配节点 opacity 0.25、
+    消息行/rail chip 0.4；选中态行高亮 + 消息加粗
+  → E2E 验证：blob 链路（SVG 32.5KB → PNG 212KB → 下载名正确）；
+    SVG 内容 grep（COMMITS/锚点/lane 标签/35 徽章/4 AI 点）；
+    横版 VLM 四项全过；纵版+fix 筛选 VLM 五项全过（1 halo、20 节点 +
+    16 行降饱和、FIX 徽章、7 药丸）；控制台零错误
+- 14-b 提示文案（Task 13 建议③）：
+  → Conventions 副标题 "click a row to filter the timeline & highlight
+    the graph"；行 tooltip 说明 halo + dim 行为；激活态 chip 追加
+    "· graph dimmed"（sm 以上）
+  → Timeline "type: fix" chip 加 title 提示图联动
+- 14-c 新功能：Minimap 全历史导航条（画布下、footer 上，h-30px）：
+  → 每条 commit 一个点（6,430 全量，诚实无抽样）：row→x（最新在左，
+    与横版阅读方向一致）、lane→y、AI commit 琥珀色、merge 稍大；
+    单 <g> innerHTML memo（layout/width 变更才重建，平移缩放零重渲）
+  → emerald 视口窗（startRow/endRow 百分比定位）+ 选中 commit 竖标线 +
+    new/old 微标签；仅当历史溢出视口时挂载（同时画布 400/560→380/530
+    补偿高度）
+  → 交互：click = animateTo 滑翔（280ms）；drag = pointer capture +
+    原始 setTransform 1:1 跟手（scrubber 手感）
+  → 【bug 修复·首跳竞态】连续复现 fresh load 首次点击落在 0.74x 位置
+    （62.6% 而非 85%）：根因是 miniJump 用 tRef.current.scale 重算几何，
+    在 fit effect 的 rAF 尚未 flush 时 tRef 仍是初始 scale=1.0（渲染已
+    1.35）——改为直接引用渲染作用域 geo（与屏上严格同源）后 3/3 次
+    fresh load 85% 点击精确落地（5,444–5,489 居中 5,466）
+  → 另修复横版跳转符号错误：tx = sw/2 - worldX（screen x = world x +
+    tx，初版写反导致横版点击无效果）
+  → 验证矩阵：纵拖拽 20%→60% 精确（3,836–3,881）；横版 90% 跳转精确
+    （5,765–5,810）；Back to latest 回 1–41；动画轮询 62.6→75.7→84.65%
+    收敛稳定；移动端 390px strip 356×30 / overflowX=0 / 画布 380；
+    暗色 VLM 无对比度问题；控制台零错误
+- 14-d QA 中澄清两则 VLM 幻觉（DOM 几何复核）：
+  → "rail chips 重叠"：实测 41 chips / 3 行 / 0 重叠（chip 高 30px）
+  → "导出右缘截断"：与屏上 overflow 裁剪行为一致，属 WYSIWYG 语义
+- 14-e 验证与收尾：lint 零错误；tsc 项目内零错误；dev.log 全 200；
+  推送 GitHub 3a32e89（第 14 个 Task commit）
+
+Stage Summary:
+- 导出功能达到"所见即所得"：横版 lane 标签列 + 底部 rail + 双模式类型
+  筛选视觉（halo/降饱和）全部进入 PNG，导出图与屏上图的可感知差异消除
+- Minimap 补上导航拼图："我在 15 年历史的哪里"一眼可答；click/drag
+  双模式 + 全量 6,430 点（含 AI 琥珀标记）让空间感与诚实原则兼得；
+  顺带沉淀"事件几何必须引用渲染作用域而非 ref 快照"的竞态教训
+- 类型筛选的可发现性闭环：卡片副标题 / 行 tooltip / 激活 chip 三处
+  明示"图会联动高亮+降饱和"
+
+未解决问题或风险，建议下一阶段优先事项:
+1. 【下一步建议】Minimap 增强：hover 显示该位置日期 tooltip；shift+click
+   精确定位某 commit；rail 上方或 minimap 显示当前视口的日期范围文本
+2. 【下一步建议】PNG 导出可选包含 minimap 全景条（poster 模式天然合适）
+3. 【下一步建议】图内搜索联动：搜索命中时在 minimap 上打标记点 +
+   图节点高亮（复用 typeFilter 的 dim 机制）
+4. 沙箱重启仍会清 repos/demo 与 .env.local —— 开工先跑
+   ls repos/demo/.git && cat .env.local 体检
+5. self 仓库叙事：本次为第 14 个 Task commit（3a32e89）
