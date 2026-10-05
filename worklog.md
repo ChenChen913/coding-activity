@@ -808,3 +808,97 @@ Stage Summary:
 4. 横版 below 面板在 390px 手机上位于首屏折叠线下（正常文档流），若要
    首屏可见可考虑移动端横版默认收起为 240px 高
 5. self 仓库叙事持续积累：本次为第 11 个 Task commit
+
+---
+Task ID: 12
+Agent: main (Z.ai Code, cron round)
+Task: 采纳 Task 11 建议 —— ①Timeline 类型筛选闭环（Conventions 行可点）②横版 lane 侧标签 ③GitHub events 徽章 + 60s 轮询；修复沙箱重置引发的数据层事故
+
+Work Log:
+- 【环境事故 1·repos 目录被沙箱清除】会话开始全部 API 422（"demo is not a
+  git repository"）—— repos/demo 整个目录（expressjs/express 全量克隆）被
+  沙箱跨会话清理（gitignored 目录不持久）。重新 git clone 全量恢复
+  （app 统计 6,430 commits，与之前一致）；.zscripts/dev.pid 移出 git 跟踪
+- 【环境事故 2·.env.local 被清除】GITHUB_TOKEN 丢失 → events API 降级
+  rate-limited。从 git remote URL 内嵌 token 恢复 .env.local（40 字符，
+  gitignored 验证通过），events API 立即点亮
+- 【重大排障教训·显示层吞字符】bash 输出反复显示 commit-graph.tsx 出现
+  "overedRow" 类"语法损坏"且工具间互相矛盾（rg 见损坏 / python 说干净 /
+  tsc 说合法）——最终 od -c 字节级验证：**文件从未损坏**，是本会话输出
+  显示层把 "[h" 序列当 markdown 链接语法吃掉了。以后凡见"不可能的损坏"，
+  先 od -c / wc -c 字节级复核，不要直接改文件
+- 【排障教训 2·wheel 方向语义】横版 wheel down（deltaY>0）= 向"更新"方向
+  旅行；在 home（最新在右缘）位置 wheel down 被正确 clamp → 视图不动是
+  【设计行为】不是 bug。QA 平移要用负 deltaY（向更老）。另：
+  agent-browser mouse move 的坐标与 mouse wheel 的派发坐标不联动（wheel
+  命中了 main 元素滚了页面），合成 dispatch 直接指定 target 元素最可靠
+- 12-a Timeline 类型筛选闭环（ConventionsCard → ActivityTimeline）：
+  → ConventionsCard 行变按钮：hover 染色、active 态 Check 图标 + 色环、
+    空行 disabled；副标题 "click a row to filter the timeline"
+  → "other…" 行的 kinds = other+merge+折叠尾部类型（analysis 新增
+    otherKinds，行显示与筛选语义严格一致）
+  → page.tsx 持有 typeFilter 状态：切换仓库时清空；toggle 后 rAF 滚动
+    timeline 进入视野（闭环可见）；timeline 卡底部 strip 显示
+    "filtering: fix ×" 一键清除
+  → ActivityTimeline：chips 状态重命名 kindFilter（消除与 prop 撞名）；
+    筛选管线正交组合（typeFilter 与 kind/年份 chips 可叠加）；筛选条
+    前置彩色 "type: fix" chip（× 清除）；空态给出原因 + 清除按钮；
+    typeFilter 变化 rAF 重置窗口
+  → 实测：点 fix 行（49 commits 0.8%）→ timeline 自动滚入视野、
+    "type: fix" chip 出现、列表恰好 49 条全部 FIX 徽章、showing 1–49 of 49；
+    × 清除 → 恢复 6,735 activities 混合类型
+- 12-b 横版 lane 标签列（viewport 固定左侧沟槽）：
+  → laneLabels memo：每条 lane 取分支 tip 名（当前分支优先 > 本地名 >
+    第一个；远端前缀 origin/ 剥离显示、title 留全名）；无 tip 的 lane
+    诚实回退 L<n>；点击标签 = selectCommit(该分支 tip)
+  → 几何全面改造（10+ 处）：时间 svg left=labelW（76/112px 按断点）+ 
+    width=svgW 天然裁剪 —— commit 永远不会滑到标签下面；effTx/fit/
+    初始 fit/goHome/Latest/selectCommit 居中/rowFromClientX/可见窗口/
+    axisMarks/双指缩放锚点（pinch midX svg-local）/zoomAt 横版锚点修正
+    全部按 svgW 推导；awayFromHome/hHomeTx 同步
+  → 标签 chip：lane 色点 + 名称 + lane 色边框淡染背景；HEAD 分支加粗 +
+    色环强调；geo.lw<15 缩得太小时退化为纯色点（不重叠）
+  → 实测（VLM）：master (HEAD)/dependabot/github_actions/release/4.22.3/
+    ci-workflows + L5 全部可读、零重叠、平移时固定左缘；点
+    dependabot 标签 → pulse-ring 定位到该分支 tip ✅；Oldest/Latest/
+    Back-to-latest（6,394–6,430 ↔ 1–36）全部正常
+- 12-c GitHub events 徽章 + 60s 轮询：
+  → EVENT_KIND_CHIP 8 类彩色徽章（PUSH/RELEASE/PR/ISSUE/STAR/FORK/
+    BRANCH/EVENT，亮暗双模式）替换原色点
+  → 头部 "refreshes every 60s · updated {relativeTime}"（now memo 加入
+    dataUpdatedAt 依赖保持诚实）；前端 refetchInterval 5min→60s，后端
+    TTL 5min→60s（token 限流 5000/h 下 60 次/h 安全）
+  → 实测：events available:true，FORK/EVENT/PR/ISSUE 徽章渲染，
+    "updated now" 显示
+- 12-d 验证矩阵：
+  → 桌面横版：标签列/方向锚点/时间轴/下方常显面板全链路 ✅
+  → 竖版回归：hover tooltip（b028ce18 BUILD 真实数据）+ 侧面板 ✅
+  → 移动端 390px：横版 overflowX=0、标签列 76px 可读、svg left=76
+    width=280（VLM BUGS NONE）✅
+  → 暗色模式整页 VLM BUGS NONE（lane 标签对比度 WCAG AA+）✅
+  → 控制台零错误；dev.log 全 200；lint 零错误；无新增 tsc 错误
+- 12-e 推送：发现远端已有不同 hash 的 phase11（前轮已推）→ rebase 冲突
+  仅 dev.pid/mode 差异 → skip 重复本地 phase11 后干净推上
+  a3ec9d3 feat(phase12)
+
+Stage Summary:
+- 「点卡片行 → timeline 只看该类记录」闭环落地：Conventions 卡从静态
+  统计升级为可交互筛选入口，与 timeline 双向联动（chip × / 卡片再点 /
+  底部 strip 三处可清除），且与 kind/年份 chips 正交组合
+- 横版信息架构补上最后一块：左侧 lane 标签列让「每条泳道是什么分支」
+  一眼可读，点击直达分支 tip；viewport 固定 + svg 裁剪的双层设计保证
+  标签永不遮挡 commit（竖版 time gutter 的对称实现）
+- live feed 真正"活"起来：60s 轮询 + 新鲜度标签 + 8 类事件彩色徽章
+- 沙箱不持久化 gitignored 路径（repos/、.env.local）的教训已沉淀到
+  QA checklist：API 422 时先 ls repos/ + cat .env.local
+
+未解决问题或风险，建议下一阶段优先事项:
+1. 【下一步建议】类型筛选联动图本体：typeFilter 激活时把 graph 中非该
+   类型节点降饱和（或列表行淡化），卡片↔图↔timeline 三处视觉同源
+2. 【下一步建议】PNG 导出（export-graph.ts）补 lane 标签列与类型徽章，
+   消除导出图与屏上图的可感知差异；横版导出加 labelW 沟槽对齐
+3. 沙箱重启会再次清掉 repos/demo 与 .env.local —— 下轮开工先跑
+   `ls repos/demo/.git && cat .env.local` 体检（可写个 make doctor）
+4. 遗留 tsc 严格模式告警 3 处（integrity-card 索引签名 / diff-highlight
+   m 可空 / page.tsx L633 IntegrityCard 类型）——运行时安全，低优先
+5. self 仓库叙事：本次为第 12 个 Task commit（含 12 个 AI commit）
