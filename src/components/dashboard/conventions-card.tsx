@@ -5,13 +5,15 @@
  *
  * Conventional-commit type distribution, parsed from the real subject
  * lines (feat: / fix(scope): / revert: …). Non-conforming subjects land
- * in "other" — visible, never hidden. The bottom strip shows the real
- * AI-assisted share of the currently visible history.
+ * in "other" — visible, never hidden. Every row is a live filter: click
+ * one and the Activity Timeline below narrows to exactly that kind of
+ * record. The bottom strip shows the real AI-assisted share of the
+ * currently visible history.
  */
 
 import { useMemo } from 'react'
 import { motion } from 'framer-motion'
-import { Sparkles, Tag } from 'lucide-react'
+import { Check, Sparkles, Tag } from 'lucide-react'
 
 import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -20,12 +22,30 @@ import type { GraphCommit } from '@/lib/git/types'
 
 const MAX_ROWS = 8
 
+/** a timeline type filter chosen on this card — the row key plus the
+ *  exact set of canonical commit types it stands for (the "other…" row
+ *  aggregates unclassified subjects, structural merges and any named
+ *  types beyond MAX_ROWS, so the filter is honest about what it holds) */
+export interface TypeFilterSelection {
+  rowKey: string
+  kinds: CommitType[]
+}
+
 export interface ConventionsCardProps {
   commits: GraphCommit[]
   loading: boolean
+  /** active type filter (shared with the timeline), null = off */
+  typeFilter?: TypeFilterSelection | null
+  /** toggle a row's filter; parent owns the state */
+  onToggleTypeFilter?: (rowKey: string, kinds: CommitType[]) => void
 }
 
-export function ConventionsCard({ commits, loading }: ConventionsCardProps) {
+export function ConventionsCard({
+  commits,
+  loading,
+  typeFilter,
+  onToggleTypeFilter,
+}: ConventionsCardProps) {
   const analysis = useMemo(() => {
     const counts = new Map<string, number>()
     let conventional = 0
@@ -47,13 +67,27 @@ export function ConventionsCard({ commits, loading }: ConventionsCardProps) {
       .filter(([t]) => t !== 'other' && t !== 'merge')
       .sort((a, b) => b[1] - a[1])
     const head = named.slice(0, MAX_ROWS - 1)
-    const tail = named.slice(MAX_ROWS - 1).reduce((s, [, n]) => s + n, 0)
+    const tailRows = named.slice(MAX_ROWS - 1)
+    const tail = tailRows.reduce((s, [, n]) => s + n, 0)
     const rows: Array<[string, number]> = [
       ...head,
       ['other', otherCount + tail],
     ]
     const max = rows[0]?.[1] ?? 1
-    return { rows, max, total, conventional, ai }
+    return {
+      rows,
+      max,
+      total,
+      conventional,
+      ai,
+      /** named types folded into the "other…" row — kept so the row's
+       *  timeline filter covers exactly what the row displays */
+      otherKinds: [
+        'other',
+        'merge',
+        ...tailRows.map(([t]) => t as CommitType),
+      ] as CommitType[],
+    }
   }, [commits])
 
   return (
@@ -67,7 +101,7 @@ export function ConventionsCard({ commits, loading }: ConventionsCardProps) {
           <div>
             <div className="text-sm font-semibold leading-tight">Conventions</div>
             <div className="text-[11px] text-muted-foreground">
-              commit types parsed from real subjects
+              real commit types · click a row to filter the timeline
             </div>
           </div>
         </div>
@@ -114,38 +148,90 @@ export function ConventionsCard({ commits, loading }: ConventionsCardProps) {
             </div>
           </div>
         ) : (
-          <ul className="space-y-[7px]">
+          <ul className="space-y-[5px]">
             {analysis.rows.map(([type, count], i) => {
               const isOther = type === 'other'
               const pct = (count / analysis.total) * 100
+              const color = TYPE_META[type as CommitType]?.color ?? '#a8a29e'
+              const active = typeFilter?.rowKey === type
+              const kinds = isOther
+                ? analysis.otherKinds
+                : [type as CommitType]
               return (
-                <li key={type} className="flex items-center gap-2.5">
-                  <span className="w-[52px] shrink-0 truncate font-mono text-[10.5px] font-medium text-muted-foreground">
-                    {isOther ? 'other…' : type}
-                  </span>
-                  <span className="relative h-2.5 min-w-0 flex-1 overflow-hidden rounded-full bg-foreground/[0.06]">
-                    <motion.span
-                      initial={{ width: 0 }}
-                      animate={{ width: `${Math.max(1.5, pct)}%` }}
-                      transition={{
-                        duration: 0.5,
-                        ease: 'easeOut',
-                        delay: Math.min(i * 0.04, 0.3),
-                      }}
-                      className="absolute inset-y-0 left-0 rounded-full"
-                      style={{
-                        backgroundColor:
-                          TYPE_META[type as CommitType]?.color ?? '#a8a29e',
-                      }}
-                      title={`${count.toLocaleString()} commits · ${pct.toFixed(1)}%`}
-                    />
-                  </span>
-                  <span className="w-[52px] shrink-0 text-right font-mono text-[10px] tabular-nums text-muted-foreground">
-                    {count.toLocaleString()}
-                    <span className="ml-1 text-muted-foreground/60">
-                      {pct < 10 ? pct.toFixed(1) : Math.round(pct)}%
+                <li key={type}>
+                  <button
+                    type="button"
+                    aria-pressed={active}
+                    disabled={count === 0}
+                    onClick={() => onToggleTypeFilter?.(type, kinds)}
+                    title={
+                      count === 0
+                        ? 'no commits of this type in view'
+                        : active
+                          ? `${count.toLocaleString()} commits (${pct.toFixed(1)}%) — click to clear the timeline filter`
+                          : `${count.toLocaleString()} commits (${pct.toFixed(1)}%) — click to show only ${
+                              isOther ? 'unclassified / merge' : type
+                            } records in the timeline`
+                    }
+                    className={`group -mx-1.5 flex w-[calc(100%+3px)] items-center gap-2.5 rounded-md px-1.5 py-[3px] text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/60 ${
+                      count === 0
+                        ? 'cursor-default opacity-45'
+                        : active
+                          ? 'cursor-pointer bg-foreground/[0.05]'
+                          : 'cursor-pointer hover:bg-foreground/[0.045]'
+                    }`}
+                  >
+                    <span
+                      className={`flex w-[52px] shrink-0 items-center gap-1 truncate font-mono text-[10.5px] font-medium ${
+                        active
+                          ? 'font-semibold text-foreground'
+                          : 'text-muted-foreground group-hover:text-foreground'
+                      }`}
+                    >
+                      {active ? (
+                        <Check
+                          className="h-3 w-3 shrink-0"
+                          style={{ color }}
+                          aria-hidden
+                        />
+                      ) : (
+                        <span
+                          className="h-1.5 w-1.5 shrink-0 rounded-full"
+                          style={{ backgroundColor: color }}
+                          aria-hidden
+                        />
+                      )}
+                      <span className="truncate">
+                        {isOther ? 'other…' : type}
+                      </span>
                     </span>
-                  </span>
+                    <span className="relative h-2.5 min-w-0 flex-1 overflow-hidden rounded-full bg-foreground/[0.06]">
+                      <motion.span
+                        initial={{ width: 0 }}
+                        animate={{ width: `${Math.max(1.5, pct)}%` }}
+                        transition={{
+                          duration: 0.5,
+                          ease: 'easeOut',
+                          delay: Math.min(i * 0.04, 0.3),
+                        }}
+                        className="absolute inset-y-0 left-0 rounded-full"
+                        style={{
+                          backgroundColor: color,
+                          boxShadow: active ? `0 0 0 2px ${color}40` : undefined,
+                        }}
+                      />
+                    </span>
+                    <span
+                      className={`w-[52px] shrink-0 text-right font-mono text-[10px] tabular-nums ${
+                        active ? 'text-foreground' : 'text-muted-foreground'
+                      }`}
+                    >
+                      {count.toLocaleString()}
+                      <span className="ml-1 text-muted-foreground/60">
+                        {pct < 10 ? pct.toFixed(1) : Math.round(pct)}%
+                      </span>
+                    </span>
+                  </button>
                 </li>
               )
             })}
@@ -167,9 +253,29 @@ export function ConventionsCard({ commits, loading }: ConventionsCardProps) {
             </span>
           )}
         </span>
-        <span className="text-muted-foreground/70">
-          detected from real trailers
-        </span>
+        {typeFilter ? (
+          <button
+            type="button"
+            onClick={() => onToggleTypeFilter?.(typeFilter.rowKey, [])}
+            title="Clear the timeline type filter"
+            className="inline-flex shrink-0 items-center gap-1 rounded-full border border-foreground/20 px-2 py-px font-medium text-foreground transition-colors hover:bg-muted"
+          >
+            <span
+              className="h-1.5 w-1.5 rounded-full"
+              style={{
+                backgroundColor:
+                  TYPE_META[typeFilter.rowKey as CommitType]?.color ?? '#a8a29e',
+              }}
+              aria-hidden
+            />
+            filtering: {typeFilter.rowKey === 'other' ? 'other…' : typeFilter.rowKey}
+            <span aria-hidden>×</span>
+          </button>
+        ) : (
+          <span className="text-muted-foreground/70">
+            detected from real trailers
+          </span>
+        )}
       </div>
     </Card>
   )

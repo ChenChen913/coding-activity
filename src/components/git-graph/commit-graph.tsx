@@ -60,6 +60,9 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 const VISIBLE_BUFFER = 4
 /** horizontal layout: height of the top time-axis strip */
 const AXIS_H = 26
+/** horizontal layout: width of the viewport-fixed lane-label gutter
+ *  (branch tips), carved out of the left edge — narrower on phones */
+const labelWOf = (w: number) => (w < 640 ? 76 : 112)
 
 export type Orientation = 'vertical' | 'horizontal'
 
@@ -187,15 +190,20 @@ export function CommitGraph({
     : 140
 
   const viewH = size.h
-  /* horizontal geometry: the time axis runs along x, lanes stack on y */
+  /* horizontal geometry: the time axis runs along x, lanes stack on y.
+     The lane-label gutter (branch tips) is carved out of the left edge:
+     the time svg starts right of it and clips there, so commits can
+     never slide underneath the fixed labels. */
+  const labelW = horiz ? labelWOf(size.w) : 0
+  const svgW = Math.max(60, size.w - labelW)
   const hTimeW = geo ? LEFT_PAD * 2 + commits.length * geo.rh : 0
   const hLanesH = geo ? TOP_PAD * 2 + geo.lw * Math.max((layout?.laneCount ?? 1) - 1, 0) + geo.lw : 0
   const hGraphH = Math.max(0, size.h - AXIS_H)
   const effTx = geo
     ? horiz
-      ? hTimeW <= size.w || size.w === 0
-        ? (size.w - hTimeW) / 2
-        : clamp(t.tx, size.w - hTimeW, 0)
+      ? hTimeW <= svgW || svgW === 0
+        ? (svgW - hTimeW) / 2
+        : clamp(t.tx, svgW - hTimeW, 0)
       : geo.contentW <= laneAreaW
         ? (laneAreaW - geo.contentW) / 2
         : clamp(t.tx, laneAreaW - geo.contentW, 0)
@@ -301,13 +309,16 @@ export function CommitGraph({
       const newScale = clamp(prev.scale * factor, MIN_SCALE, MAX_SCALE)
       const k = newScale / prev.scale
       if (k === 1) return
+      // horizontal mode: the time svg starts right of the lane-label
+      // gutter, so the x anchor must be svg-local for a stable zoom
+      const ax = horiz ? px - labelWOf(sizeRef.current.w) : px
       setT({
         scale: newScale,
-        tx: px - (px - prev.tx) * k,
+        tx: ax - (ax - prev.tx) * k,
         ty: (py + prev.ty) * k - py,
       })
     },
-    [],
+    [horiz],
   )
 
   const animateTo = useCallback(
@@ -360,10 +371,11 @@ export function CommitGraph({
       const timeW = LEFT_PAD * 2 + n * g.rh
       const lanesH = TOP_PAD * 2 + g.lw * Math.max(lay.laneCount - 1, 0) + g.lw
       const { w, h } = sizeRef.current
+      const svgW = Math.max(60, w - labelWOf(w))
       const graphH = Math.max(0, h - AXIS_H)
       setT({
         scale: fitScale,
-        tx: timeW <= w ? (w - timeW) / 2 : w - timeW, // newest stays visible on the right
+        tx: timeW <= svgW ? (svgW - timeW) / 2 : svgW - timeW, // newest stays visible on the right
         ty: lanesH <= graphH ? (lanesH - graphH) / 2 : 0,
       })
       return
@@ -396,10 +408,11 @@ export function CommitGraph({
           const timeW = LEFT_PAD * 2 + n * g.rh
           const lanesH = TOP_PAD * 2 + g.lw * Math.max(lay.laneCount - 1, 0) + g.lw
           const { w, h } = sizeRef.current
+          const svgW = Math.max(60, w - labelWOf(w))
           const graphH = Math.max(0, h - AXIS_H)
           setT({
             scale: fitScale,
-            tx: timeW <= w ? (w - timeW) / 2 : w - timeW,
+            tx: timeW <= svgW ? (svgW - timeW) / 2 : svgW - timeW,
             ty: lanesH <= graphH ? (lanesH - graphH) / 2 : 0,
           })
         }
@@ -429,16 +442,18 @@ export function CommitGraph({
       const n = commitsRef.current.length
 
       if (horiz) {
-        // screen x = world time x + tx  (newest on the right)
+        // screen x = label gutter + svg-local x = labelW + world time x + tx
         const wx = LEFT_PAD + (n - 1 - row) * g.rh + g.rh / 2
-        const x = wx + txRef.current
         const w = sizeRef.current.w
+        const lw = labelWOf(w)
+        const svgW = Math.max(60, w - lw)
+        const x = lw + wx + txRef.current
         const h = sizeRef.current.h
         const lane = lay.laneOf.get(selectedHash) ?? 0
         const wy = TOP_PAD + lane * g.lw + g.lw / 2
         const y = AXIS_H + wy - tyRef.current
         const next: { ty?: number; tx?: number } = {}
-        if (x < 100 || x > w - 100) next.tx = w / 2 - wx
+        if (x < lw + 100 || x > w - 100) next.tx = svgW / 2 - wx
         if (y < 60 || y > h - 60) next.ty = AXIS_H + wy - h / 2
         if (next.ty !== undefined || next.tx !== undefined) {
           animateTo({
@@ -534,8 +549,15 @@ export function CommitGraph({
         const ps = pinchStart.current
         const [a, b] = [...pts.values()]
         const dist = Math.hypot(a.x - b.x, a.y - b.y)
-        const midX = (a.x + b.x) / 2 - (containerRef.current?.getBoundingClientRect().left ?? 0)
-        const midY = (a.y + b.y) / 2 - (containerRef.current?.getBoundingClientRect().top ?? 0)
+        const cont = containerRef.current
+        const rectL = cont?.getBoundingClientRect().left ?? 0
+        // horizontal mode: anchor x in svg-local space (right of the
+        // lane-label gutter) so the pinch zooms around the true midpoint
+        const midXRaw = (a.x + b.x) / 2 - rectL
+        const midX = horiz
+          ? midXRaw - labelWOf(cont?.clientWidth ?? 0)
+          : midXRaw
+        const midY = (a.y + b.y) / 2 - (cont?.getBoundingClientRect().top ?? 0)
         const newScale = clamp(ps.scale * (dist / ps.dist), MIN_SCALE, MAX_SCALE)
         const k = newScale / ps.scale
         didPan.current = true
@@ -580,10 +602,14 @@ export function CommitGraph({
         didPan.current = false
       } else if (pointers.current.size === 2) {
         const [a, b] = [...pointers.current.values()]
+        // svg-local x when horizontal (see the pinch move handler)
+        const midXRaw = (a.x + b.x) / 2 - rect.left
         pinchStart.current = {
           dist: Math.hypot(a.x - b.x, a.y - b.y),
           scale: tRef.current.scale,
-          midX: (a.x + b.x) / 2 - rect.left,
+          midX: horiz
+            ? midXRaw - labelWOf(containerRef.current?.clientWidth ?? 0)
+            : midXRaw,
           midY: (a.y + b.y) / 2 - rect.top,
           tx: tRef.current.tx,
           ty: tRef.current.ty,
@@ -591,7 +617,7 @@ export function CommitGraph({
         panStart.current = null
       }
     },
-    [cancelPanAnim],
+    [cancelPanAnim, horiz],
   )
 
   const onDoubleClick = useCallback(
@@ -677,8 +703,9 @@ export function CommitGraph({
     const geoNow = computeGeo(lay, tRef.current.scale, commitsRef.current.length)
     const n = commitsRef.current.length
     // column 0 (newest) occupies world x ∈ [LEFT_PAD, LEFT_PAD + rh);
-    // screen x = world x + tx → world x = screen x − tx
-    const x = clientX - rect.left - txRef.current - LEFT_PAD // world x
+    // screen x = labelW + world x + tx → world x = screen x − labelW − tx
+    const x =
+      clientX - rect.left - labelWOf(rect.width) - txRef.current - LEFT_PAD // world x
     const col = Math.floor(x / geoNow.rh) // 0 = newest
     const r = n - 1 - col
     return r >= 0 && r < n ? r : null
@@ -725,10 +752,11 @@ export function CommitGraph({
     let endRow: number
     if (horiz) {
       // time runs along x: derive the visible column window from effTx
-      // (screen x = world x + tx, so the visible world range is [−tx, −tx + w])
+      // (screen x = world x + tx, so the visible world range is
+      // [−tx, −tx + svgW] in svg-local space, right of the label gutter)
       const cw = geo.rh
       const colMin = Math.floor((-effTx - LEFT_PAD) / cw) - VISIBLE_BUFFER
-      const colMax = Math.ceil((-effTx + size.w - LEFT_PAD) / cw) + VISIBLE_BUFFER
+      const colMax = Math.ceil((-effTx + svgW - LEFT_PAD) / cw) + VISIBLE_BUFFER
       startRow = clamp(n - 1 - colMax, 0, n - 1) // older boundary
       endRow = clamp(n - 1 - colMin, 0, n - 1) // newer boundary
     } else {
@@ -742,10 +770,41 @@ export function CommitGraph({
       (e) => e.childRow <= endRow + 1 && e.parentRow >= startRow - 1,
     )
     return { startRow, endRow, nodes, edges }
-  }, [layout, geo, viewH, effTy, effTx, size.w, horiz])
+  }, [layout, geo, viewH, effTy, effTx, svgW, horiz])
 
   const hoveredCommit =
     hoveredRow !== null && layout ? layout.nodes[hoveredRow]?.commit : undefined
+
+  /** lane → branch tip label (horizontal mode): the branch whose tip
+   *  commit lives on that lane — the current branch wins, then local
+   *  names; lanes without any branch tip fall back to a lane number.
+   *  Clicking a label jumps to that branch's tip commit. */
+  const laneLabels = useMemo(() => {
+    if (!layout) return []
+    const out: Array<{
+      name: string
+      fullName: string
+      hash: string
+      isCurrent: boolean
+    } | null> = new Array(layout.laneCount).fill(null)
+    for (const nd of layout.nodes) {
+      const bs = nd.commit.headBranches
+      if (!bs || bs.length === 0) continue
+      const isCurrent = bs.includes(currentBranch)
+      const best = isCurrent
+        ? currentBranch
+        : (bs.find((b) => !b.includes('/')) ?? bs[0])
+      const cur = out[nd.lane]
+      if (!cur || (isCurrent && !cur.isCurrent)) {
+        // strip a remote prefix (origin/…) for the compact label
+        const name = best.includes('/')
+          ? best.split('/').slice(1).join('/')
+          : best
+        out[nd.lane] = { name, fullName: best, hash: nd.commit.hash, isCurrent }
+      }
+    }
+    return out
+  }, [layout, currentBranch])
 
   const gutterMarks = useMemo(() => {
     if (!layout || !geo || !visible) return []
@@ -777,7 +836,12 @@ export function CommitGraph({
     for (const m of layout.monthMarks) {
       if (m.row < visible.startRow - 2 || m.row > visible.endRow + 2) continue
       if (!m.isYearStart && !showMonths) continue
-      const x = LEFT_PAD + (n - 1 - m.row) * geo.rh + geo.rh / 2 + effTx
+      const x =
+        LEFT_PAD +
+        (n - 1 - m.row) * geo.rh +
+        geo.rh / 2 +
+        effTx +
+        labelW // svg-local + label gutter = container x
       // keep clear of the fixed direction anchors at both ends
       if (x < 76 || x > size.w - 64) continue
       if (x - lastX < 30) continue
@@ -789,7 +853,7 @@ export function CommitGraph({
       })
     }
     return out
-  }, [layout, geo, visible, effTx, size.w, horiz])
+  }, [layout, geo, visible, effTx, labelW, size.w, horiz])
 
   /* ---------------- back-to-home (newest) floating button ----------- */
   /** true once the viewport has travelled away from the newest commits:
@@ -797,9 +861,13 @@ export function CommitGraph({
    *  the right edge where the newest commits live */
   const awayFromHome = geo
     ? horiz
-      ? hTimeW > size.w && effTx - (size.w - hTimeW) > 120
+      ? hTimeW > svgW && effTx - (svgW - hTimeW) > 120
       : geo.totalH > viewH && effTy > 120
     : false
+
+  /** horizontal home position: newest pinned to the right edge of the
+   *  time svg (or centered when the whole history fits) */
+  const hHomeTx = hTimeW <= svgW ? (svgW - hTimeW) / 2 : svgW - hTimeW
 
   const goHome = useCallback(() => {
     if (horiz) {
@@ -809,9 +877,10 @@ export function CommitGraph({
       const n = commitsRef.current.length
       const timeW = LEFT_PAD * 2 + n * g.rh
       const w = sizeRef.current.w
+      const svgW = Math.max(60, w - labelWOf(w))
       animateTo({
         ty: tyRef.current,
-        tx: timeW <= w ? (w - timeW) / 2 : w - timeW,
+        tx: timeW <= svgW ? (svgW - timeW) / 2 : svgW - timeW,
       })
     } else {
       animateTo({ ty: 0 })
@@ -1004,9 +1073,7 @@ export function CommitGraph({
             title="Latest"
             onClick={() =>
               horiz
-                ? animateTo({
-                    tx: geo ? (hTimeW <= size.w ? (size.w - hTimeW) / 2 : size.w - hTimeW) : 0,
-                  })
+                ? animateTo({ ty: effTy, tx: hHomeTx })
                 : animateTo({ ty: 0 })
             }
           >
@@ -1020,7 +1087,7 @@ export function CommitGraph({
             title="Oldest"
             onClick={() =>
               horiz
-                ? animateTo({ tx: 0 })
+                ? animateTo({ ty: effTy, tx: 0 })
                 : animateTo({
                     ty: geo
                       ? geo.totalH <= viewH
@@ -1147,12 +1214,83 @@ export function CommitGraph({
               </div>
             )}
 
+            {/* horizontal layout: lane label gutter — branch tips pinned
+                to the left edge; the time svg is clipped right of it, so
+                commits never slide underneath these labels */}
+            {horiz && geo && (
+              <div
+                className="pointer-events-none absolute bottom-0 left-0 z-[6] border-r bg-background/80 backdrop-blur-[2px]"
+                style={{ top: AXIS_H, width: labelW }}
+              >
+                {laneLabels.map((ln, i) => {
+                  const laneH = hLanesH > 0 ? geo.lw : 0
+                  const y = TOP_PAD + i * laneH + laneH / 2 - effTy
+                  if (y < -10 || y > size.h - AXIS_H + 10) return null
+                  const color = laneColor(i)
+                  const compact = geo.lw < 15 // too zoomed out — dots only
+                  const h = compact
+                    ? Math.min(8, geo.lw - 2)
+                    : Math.min(20, geo.lw - 2)
+                  return (
+                    <button
+                      key={i}
+                      type="button"
+                      className={`pointer-events-auto absolute left-1 right-1 flex items-center overflow-hidden rounded border outline-none transition-[border-color,background-color] focus-visible:ring-2 focus-visible:ring-ring/60 ${
+                        ln
+                          ? 'cursor-pointer hover:border-foreground/40'
+                          : 'cursor-default'
+                      } ${compact ? 'justify-center' : 'gap-1 px-1'}`}
+                      style={{
+                        top: y - h / 2,
+                        height: h,
+                        borderColor: ln ? `${color}55` : 'transparent',
+                        backgroundColor: ln ? `${color}14` : 'transparent',
+                      }}
+                      onClick={() => ln && selectCommit(ln.hash)}
+                      title={
+                        ln
+                          ? `${ln.fullName}${ln.isCurrent ? ' (HEAD)' : ''} — click to jump to its tip commit`
+                          : `lane ${i + 1} — a structural rail without a branch tip`
+                      }
+                      aria-label={
+                        ln
+                          ? `Lane ${i + 1}: branch ${ln.fullName}. Jump to its tip commit.`
+                          : `Lane ${i + 1}`
+                      }
+                    >
+                      <span
+                        className="h-1.5 w-1.5 shrink-0 rounded-full"
+                        style={{
+                          backgroundColor: color,
+                          boxShadow: ln?.isCurrent ? `0 0 0 2px ${color}55` : undefined,
+                        }}
+                        aria-hidden
+                      />
+                      {!compact && (
+                        <span
+                          className={`truncate text-[10px] leading-none ${
+                            ln
+                              ? ln.isCurrent
+                                ? 'font-semibold text-foreground'
+                                : 'font-medium text-foreground/80'
+                              : 'font-mono text-muted-foreground/50'
+                          }`}
+                        >
+                          {ln ? ln.name : `L${i + 1}`}
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+
             {/* lane area */}
             <svg
               className="absolute inset-y-0 block"
               style={
                 horiz
-                  ? { left: 0, width: '100%', height: '100%' }
+                  ? { left: labelW, width: svgW, height: '100%' }
                   : { left: GUTTER_W, width: laneAreaW, height: '100%' }
               }
               shapeRendering="geometricPrecision"

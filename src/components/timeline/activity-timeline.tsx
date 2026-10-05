@@ -12,7 +12,7 @@
  * the public events API when it is reachable — never synthesized.
  */
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { format } from 'date-fns'
 import {
@@ -24,13 +24,15 @@ import {
   Radio,
   Sparkles,
   Tag as TagIcon,
+  X,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CommitTypeBadge } from '@/components/commit-type-badge'
-import { parseCommitType, TYPE_META } from '@/lib/commit-type'
+import type { TypeFilterSelection } from '@/components/dashboard/conventions-card'
+import { parseCommitType, TYPE_META, type CommitType } from '@/lib/commit-type'
 import type {
   GithubEventActivity,
   GithubEventsResult,
@@ -135,15 +137,41 @@ function eventsReasonText(reason: string): string {
   }
 }
 
-const EVENT_KIND_COLOR: Record<string, string> = {
-  push: 'bg-emerald-500',
-  release: 'bg-rose-500',
-  pr: 'bg-fuchsia-500',
-  issue: 'bg-orange-500',
-  star: 'bg-amber-500',
-  fork: 'bg-purple-500',
-  branch: 'bg-teal-600',
-  other: 'bg-foreground/30',
+/** nature of every live event, color-coded like commit types — push /
+ *  release / PR … are distinguishable at a glance (light + dark) */
+const EVENT_KIND_CHIP: Record<string, { label: string; chip: string }> = {
+  push: {
+    label: 'PUSH',
+    chip: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:border-emerald-400/30 dark:bg-emerald-400/10 dark:text-emerald-300',
+  },
+  release: {
+    label: 'RELEASE',
+    chip: 'border-rose-500/30 bg-rose-500/10 text-rose-700 dark:border-rose-400/30 dark:bg-rose-400/10 dark:text-rose-300',
+  },
+  pr: {
+    label: 'PR',
+    chip: 'border-fuchsia-500/30 bg-fuchsia-500/10 text-fuchsia-700 dark:border-fuchsia-400/30 dark:bg-fuchsia-400/10 dark:text-fuchsia-300',
+  },
+  issue: {
+    label: 'ISSUE',
+    chip: 'border-orange-500/30 bg-orange-500/10 text-orange-700 dark:border-orange-400/30 dark:bg-orange-400/10 dark:text-orange-300',
+  },
+  star: {
+    label: 'STAR',
+    chip: 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-300',
+  },
+  fork: {
+    label: 'FORK',
+    chip: 'border-purple-500/30 bg-purple-500/10 text-purple-700 dark:border-purple-400/30 dark:bg-purple-400/10 dark:text-purple-300',
+  },
+  branch: {
+    label: 'BRANCH',
+    chip: 'border-teal-600/30 bg-teal-600/10 text-teal-700 dark:border-teal-300/30 dark:bg-teal-300/10 dark:text-teal-300',
+  },
+  other: {
+    label: 'EVENT',
+    chip: 'border-border bg-foreground/5 text-muted-foreground',
+  },
 }
 
 /* ------------------------------------------------------------------ */
@@ -156,10 +184,16 @@ export interface ActivityTimelineProps {
   tags: GitTag[]
   /** live GitHub public events, null while loading */
   githubEvents: GithubEventsResult | null
+  /** when the live events were last fetched (ms epoch) — shows freshness */
+  githubEventsUpdatedAt?: number
   loading: boolean
   selectedHash: string | null
   /** select a commit — the graph centers on it and the page scrolls up */
   onSelect: (hash: string) => void
+  /** commit-type filter chosen on the Conventions card (null = off) */
+  typeFilter?: TypeFilterSelection | null
+  /** clear the commit-type filter (the × on its chip) */
+  onClearTypeFilter?: () => void
 }
 
 /* ------------------------------------------------------------------ */
@@ -172,11 +206,14 @@ export function ActivityTimeline({
   commits,
   tags,
   githubEvents,
+  githubEventsUpdatedAt,
   loading,
   selectedHash,
   onSelect,
+  typeFilter,
+  onClearTypeFilter,
 }: ActivityTimelineProps) {
-  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
+  const [kindFilter, setKindFilter] = useState<TypeFilter>('all')
   const [yearFilter, setYearFilter] = useState<number | null>(null)
   /** windowing — a chat-log style sliding window over the filtered list:
    *  windowSize grows to the cap, then slides forward on "load more" and
@@ -243,17 +280,29 @@ export function ActivityTimeline({
   }, [activities])
 
   /* ---- filter pipeline ---- */
+  /** the commit-type kinds selected on the Conventions card (null = off) */
+  const typeKindSet = useMemo(
+    () => (typeFilter ? new Set(typeFilter.kinds) : null),
+    [typeFilter],
+  )
   const filtered = useMemo(() => {
     return activities.filter((a) => {
-      if (typeFilter === 'commits' && (a.isMerge || a.release)) return false
-      if (typeFilter === 'merges' && !a.isMerge) return false
-      if (typeFilter === 'releases' && !a.release) return false
-      if (typeFilter === 'ai' && !a.aiAgent) return false
+      if (typeFilter) {
+        // a commit-type filter is about commit subjects — tag activities
+        // are a different kind of record and step aside while it is on
+        if (a.release) return false
+        if (!typeKindSet?.has(parseCommitType(a.title))) return false
+      }
+      // the kind chips stay live on top of the type filter (orthogonal)
+      if (kindFilter === 'commits' && (a.isMerge || a.release)) return false
+      if (kindFilter === 'merges' && !a.isMerge) return false
+      if (kindFilter === 'releases' && !a.release) return false
+      if (kindFilter === 'ai' && !a.aiAgent) return false
       if (yearFilter !== null && new Date(a.timestamp).getFullYear() !== yearFilter)
         return false
       return true
     })
-  }, [activities, typeFilter, yearFilter])
+  }, [activities, kindFilter, typeFilter, typeKindSet, yearFilter])
 
   const visibleCount = Math.min(windowSize, filtered.length - windowStart)
 
@@ -282,6 +331,16 @@ export function ActivityTimeline({
     setWindowSize(PAGE_SIZE)
   }
 
+  /** an external type-filter change (Conventions card) re-anchors the
+   *  window at the newest activities — rAF-wrapped for the lint rule */
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => {
+      setWindowStart(0)
+      setWindowSize(PAGE_SIZE)
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [typeFilter])
+
   const groups = useMemo(() => {
     const slice = filtered.slice(windowStart, windowStart + visibleCount)
     const out: ActivityGroup[] = []
@@ -303,7 +362,11 @@ export function ActivityTimeline({
     return out
   }, [filtered, visibleCount, windowStart])
 
-  const now = useMemo(() => Date.now(), [activities])
+  const now = useMemo(
+    () => Date.now(),
+    // recompute when the live feed refreshes, so "updated Xs ago" stays honest
+    [activities, githubEventsUpdatedAt],
+  )
 
   const maxYearTotal = stats.yearBuckets.reduce((m, b) => Math.max(m, b.total), 1)
 
@@ -331,6 +394,11 @@ export function ActivityTimeline({
 
   const liveEvents: GithubEventActivity[] =
     githubEvents?.available === true ? githubEvents.events : []
+
+  /** freshness of the live feed (polls every 60 s) */
+  const liveUpdatedLabel = githubEventsUpdatedAt
+    ? relativeTime(new Date(githubEventsUpdatedAt).toISOString(), now)
+    : null
 
   /* ---- render ---- */
 
@@ -473,15 +541,46 @@ export function ActivityTimeline({
       {/* ---------- filter chips ---------- */}
       {!loading && (
         <div className="mt-3 flex flex-wrap items-center gap-2 border-t px-4 py-2.5 sm:px-5">
+          {/* commit-type filter chosen on the Conventions card — colored
+              per the shared palette, dismissible right here */}
+          {typeFilter && (
+            <span
+              role="status"
+              className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold"
+              style={{
+                borderColor: `${TYPE_META[typeFilter.rowKey as CommitType]?.color ?? '#a8a29e'}55`,
+                backgroundColor: `${TYPE_META[typeFilter.rowKey as CommitType]?.color ?? '#a8a29e'}14`,
+                color: TYPE_META[typeFilter.rowKey as CommitType]?.color ?? '#78716c',
+              }}
+            >
+              <span
+                className="h-1.5 w-1.5 rounded-full"
+                style={{
+                  backgroundColor:
+                    TYPE_META[typeFilter.rowKey as CommitType]?.color ?? '#a8a29e',
+                }}
+                aria-hidden
+              />
+              type: {typeFilter.rowKey === 'other' ? 'other / merge' : typeFilter.rowKey}
+              <button
+                type="button"
+                aria-label="Clear the commit-type filter"
+                onClick={onClearTypeFilter}
+                className="-mr-1 rounded-full p-0.5 transition-colors hover:bg-foreground/10"
+              >
+                <X className="h-3 w-3" aria-hidden />
+              </button>
+            </span>
+          )}
           {filterChips.map((f) => {
-            const active = typeFilter === f.key
+            const active = kindFilter === f.key
             return (
               <button
                 key={f.key}
                 type="button"
                 aria-pressed={active}
                 onClick={() => {
-                  setTypeFilter(f.key)
+                  setKindFilter(f.key)
                   resetWindow()
                 }}
                 className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
@@ -524,20 +623,22 @@ export function ActivityTimeline({
               GitHub · live
             </span>
             <span className="text-[10px] text-muted-foreground">
-              real public events from the GitHub API · last ~90 days
+              real public events from the GitHub API · last ~90 days · refreshes every 60s
+              {liveUpdatedLabel ? ` · updated ${liveUpdatedLabel}` : ''}
             </span>
           </div>
           <ul className="mt-2 space-y-1">
             {liveEvents.slice(0, LIVE_EVENTS_SHOWN).map((ev) => {
               const inGraph = ev.headHash ? viewHashes.has(ev.headHash) : false
+              const kindMeta = EVENT_KIND_CHIP[ev.kind] ?? EVENT_KIND_CHIP.other
               return (
                 <li key={ev.id} className="flex items-center gap-2 text-[11.5px]">
                   <span
-                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-                      EVENT_KIND_COLOR[ev.kind] ?? EVENT_KIND_COLOR.other
-                    }`}
-                    aria-hidden
-                  />
+                    className={`inline-flex h-[18px] shrink-0 items-center rounded border px-1 text-[9px] font-semibold tracking-wide ${kindMeta.chip}`}
+                    title={`${ev.kind} event`}
+                  >
+                    {kindMeta.label}
+                  </span>
                   <span className="min-w-0 flex-1 truncate">
                     <span className="font-medium">{ev.actor}</span>{' '}
                     <span className="text-muted-foreground">{ev.title}</span>
@@ -619,8 +720,23 @@ export function ActivityTimeline({
             <p className="text-xs text-muted-foreground">
               {yearFilter !== null
                 ? `Nothing in ${yearFilter} for this view.`
-                : 'Try a different type filter.'}
+                : typeFilter
+                  ? `No ${
+                      typeFilter.rowKey === 'other'
+                        ? 'unclassified / merge'
+                        : typeFilter.rowKey
+                    } records in this view.`
+                  : 'Try a different type filter.'}
             </p>
+            {typeFilter && onClearTypeFilter && (
+              <button
+                type="button"
+                onClick={onClearTypeFilter}
+                className="mt-1 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors hover:bg-muted"
+              >
+                clear type: {typeFilter.rowKey === 'other' ? 'other…' : typeFilter.rowKey}
+              </button>
+            )}
           </div>
         ) : (
           <div className="max-h-[460px] overflow-y-auto slim-scrollbar">
@@ -769,7 +885,7 @@ export function ActivityTimeline({
                               )}
                               {isRelease && (
                                 <span className="inline-flex shrink-0 items-center rounded-full border border-rose-200 bg-rose-50 px-1.5 py-px text-[9px] font-medium uppercase tracking-wide text-rose-600 dark:border-rose-400/40 dark:bg-rose-400/15 dark:text-rose-300">
-                                  {a.release.isAnnotated ? 'annotated' : 'lightweight'}
+                                  {a.release?.isAnnotated ? 'annotated' : 'lightweight'}
                                 </span>
                               )}
                             </span>

@@ -12,11 +12,11 @@ import type {
  *  - events are REAL GitHub API responses, never synthesized;
  *  - when the API is unreachable / rate-limited we return `available: false`
  *    with the true reason — the UI shows an honest note, not fake events;
- *  - responses are cached in-memory for 5 minutes (module survives across
+ *  - responses are cached in-memory for 60 seconds (module survives across
  *    requests in the same process).
  */
 
-const TTL_MS = 5 * 60_000
+const TTL_MS = 60_000
 const cache = new Map<string, { value: GithubEventsResult; expires: number }>()
 
 /* raw API shapes we actually consume (everything else is ignored) */

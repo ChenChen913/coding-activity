@@ -49,7 +49,10 @@ import { CommitDetailPanel } from '@/components/commit-detail/commit-detail-pane
 import { ActivityTimeline } from '@/components/timeline/activity-timeline'
 import { ContributorCard } from '@/components/dashboard/contributor-card'
 import { RhythmCard } from '@/components/dashboard/rhythm-card'
-import { ConventionsCard } from '@/components/dashboard/conventions-card'
+import {
+  ConventionsCard,
+  type TypeFilterSelection,
+} from '@/components/dashboard/conventions-card'
 import { ReleaseTimelineCard } from '@/components/dashboard/release-timeline-card'
 import { IntegrityCard } from '@/components/integrity/integrity-card'
 import { ThemeToggle } from '@/components/theme-toggle'
@@ -95,6 +98,12 @@ export default function Home() {
   } | null>(null)
   const [selectedHash, setSelectedHash] = useState<string | null>(null)
 
+  /** commit-type filter picked on the Conventions card — shared with the
+   *  Activity Timeline ("click a row → timeline shows only that kind") */
+  const [typeFilter, setTypeFilter] = useState<TypeFilterSelection | null>(
+    null,
+  )
+
   /** graph orientation — lifted here so the page layout can react to it
    *  (horizontal mode pins the detail panel below the graph, always
    *  visible); persisted to localStorage, shared with the graph */
@@ -104,6 +113,9 @@ export default function Home() {
 
   /** the graph card — timeline selections scroll it into view */
   const graphCardRef = useRef<HTMLDivElement>(null)
+  /** the timeline section — type-filter picks scroll it into view so the
+   *  effect of the click is immediately visible */
+  const timelineRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     // rAF-wrapped: reading a browser-only store after mount (SSR-safe),
@@ -172,13 +184,14 @@ export default function Home() {
     enabled: Boolean(repoId),
   })
 
-  /** live GitHub public events — honest degradation when unreachable */
+  /** live GitHub public events — honest degradation when unreachable;
+   *  polls every 60 s so a fresh push lights up within a minute */
   const githubEventsQuery = useQuery({
     queryKey: ['git', 'github-events', repoId],
     queryFn: () =>
       fetchJson<GithubEventsResult>(`/api/git/github-events?repo=${repoId}`),
     enabled: Boolean(repoId),
-    refetchInterval: 5 * 60_000,
+    refetchInterval: 60_000,
     retry: 1,
   })
 
@@ -207,7 +220,25 @@ export default function Home() {
     setBranchFilter('all')
     setAuthorFilter(null)
     setSelectedHash(null)
+    setTypeFilter(null)
   }
+
+  /** toggle the timeline's commit-type filter from the Conventions card;
+   *  scrolls the timeline into view so the loop closes visually */
+  const toggleTypeFilter = useCallback(
+    (rowKey: string, kinds: TypeFilterSelection['kinds']) => {
+      setTypeFilter((prev) =>
+        prev?.rowKey === rowKey ? null : { rowKey, kinds },
+      )
+      requestAnimationFrame(() => {
+        timelineRef.current?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start',
+        })
+      })
+    },
+    [],
+  )
 
   /** select from anywhere (timeline / search) — center the graph card on screen */
   const selectAndReveal = (hash: string) => {
@@ -555,6 +586,8 @@ export default function Home() {
             <ConventionsCard
               commits={commits}
               loading={commitsQuery.isLoading || !commitsMatchRepo}
+              typeFilter={typeFilter}
+              onToggleTypeFilter={toggleTypeFilter}
             />
           </motion.div>
         </motion.section>
@@ -577,15 +610,20 @@ export default function Home() {
 
         {/* ---------------- ACTIVITY TIMELINE ---------------- */}
         <Reveal>
-          <ActivityTimeline
-            key={repoId}
-            commits={commits}
-            tags={tags}
-            githubEvents={githubEvents}
-            loading={commitsQuery.isLoading || !commitsMatchRepo}
-            selectedHash={selectedHash}
-            onSelect={selectAndReveal}
-          />
+          <div ref={timelineRef} className="scroll-mt-20">
+            <ActivityTimeline
+              key={repoId}
+              commits={commits}
+              tags={tags}
+              githubEvents={githubEvents}
+              githubEventsUpdatedAt={githubEventsQuery.dataUpdatedAt}
+              loading={commitsQuery.isLoading || !commitsMatchRepo}
+              selectedHash={selectedHash}
+              onSelect={selectAndReveal}
+              typeFilter={typeFilter}
+              onClearTypeFilter={() => setTypeFilter(null)}
+            />
+          </div>
         </Reveal>
 
         {/* ---------------- integrity ---------------- */}
