@@ -902,3 +902,92 @@ Stage Summary:
 4. 遗留 tsc 严格模式告警 3 处（integrity-card 索引签名 / diff-highlight
    m 可空 / page.tsx L633 IntegrityCard 类型）——运行时安全，低优先
 5. self 仓库叙事：本次为第 12 个 Task commit（含 12 个 AI commit）
+
+---
+Task ID: 13
+Agent: main (Z.ai Code, user-requested round)
+Task: 用户三项修正 —— ①返回顶部按钮移出信息栏（避 hover 遮挡）②横向视图改为从左往右读（最新在左）③横向视图补齐每条 commit 详细信息（与纵向对应）+ 采纳 Task 12 建议①（类型筛选联动图本体）+ 修复 3 处遗留 tsc 告警 + 推送 GitHub
+
+Work Log:
+- 【接手中断现场】上轮（34bc841，UUID 提交名）在实现消息 7 修正时超时中断：
+  已反转主组件几何（wheel/drag/键盘/rowFromClientX/visible/home tx 全部
+  改为"最新在左"）+ 预埋 railH 几何与 typeFilterKinds prop，但
+  HorizontalGraph 渲染仍是旧方向（最新在右）、1711 行引用已改名的
+  ArrowRightToLine 导致编译错误、rail 无 JSX、筛选未接线 —— 本轮补完
+- 13-a 横向方向反转一致性收尾（读向：左→右 = 最新→最旧，与竖版
+  上→下完全对应）：
+  → HorizontalGraph.timeX：LEFT_PAD + row*cw（row 0 最新钉在左缘）；
+    S 曲线控制点反转为 x1+k / x2-k（child 在左、parent 在右）
+  → 方向锚点对调：左「← newest」（emerald）/ 右「oldest →」（muted）
+  → flowHint 语义修正：wheel down=向过去（"older →" muted）、
+    拖右=向最新（"← newer" emerald）；纵向 wheel 同语义（下=回溯）
+  → awayFromHome 横向判定改 effTx < -120（home tx=0，向右旅行为负）；
+    Oldest 工具栏按钮横向改 tx: hOldestTx（原 tx:0 已指向最新=bug）
+  → lane 标签 y 钳制加 railH，标签不再伸入 rail 区
+  → export-graph.ts 同步反转：view + poster 的 timeXOf 改 row 正序；
+    edgeSvg 横向曲线加方向符号 s（朝彼此弯曲，无论时间朝哪边跑）
+- 13-b 横向底部 commit 信息栏（rail，竖版消息列表的对应物）：
+  → 画布底部 railH 条（桌面 76px 双行 / 移动 48px 单行），左角
+    "COMMITS" 标题格；每个可见 commit 一个 chip 严格对齐其列
+  → 四级密度：slot<14 结构刻度（lane 色）→ <46 类型色点 → <110
+    色点+shortHash（+AI 琥珀点）→ ≥110 CommitTypeBadge+完整消息
+    （与竖版列表同密度）；桌面双行交错使 chip 可宽至 2 列不重叠
+  → hover=列高亮+完整 tooltip（hash/类型/作者/时间/AI/分支数）；
+    click=选中（pulse-ring + 下方面板联动）；chip 宽度钳 320px
+  → 竖版对应关系达成：竖版[消息列表|图|侧栏] ⇄ 横版[lane 标签|图|
+    rail]+[下方面板]，每条 commit 信息两模式等价可达
+- 13-c 返回顶部按钮移位（用户核心抱怨：hover 提交信息遮挡、点不到）：
+  → 新增图卡底部 footer 条（h-10 border-t，画布高度 440/600→
+    400/560 补偿，总高不变）；按钮彻底移出画布 → tooltip（画布内
+    DOM 定位）物理上无法再覆盖它
+  → footer 紧贴信息面板（竖版=右侧栏下缘 / 横版=下方面板上缘），
+    符合用户"移到具体信息栏外边、紧贴旁边"的要求
+  → 按钮带文案 "Back to latest"（emerald 描边，横版 ArrowLeftToLine
+    指向左缘 / 竖版 ArrowUpToLine）；位置指示器（1–41/6,430）一并
+    迁入 footer；无筛选时左侧显示微型方向图例（← newest · oldest →）
+- 13-d 类型筛选联动图本体（Task 12 建议①落地）：
+  → page.tsx 传 typeFilterKinds={typeFilter?.kinds}（上轮预埋 prop 接通）
+  → 竖版节点/消息列表行、横版节点、rail chip：非匹配 opacity 0.25/
+    0.4+saturate-50（选中项豁免）；匹配节点加类型色 halo 光环
+  → footer 激活时显示类型色筛选 chip（"type filter: fix — non-matching
+    commits dimmed"）；卡片↔图↔timeline↔rail 四处视觉同源
+- 13-e 遗留 tsc 告警清零：integrity-card 改结构化 AuditCommit 类型
+  （GraphCommit/GitCommit 双兼容）；diff-highlight m 空值守卫
+- 13-f 验证矩阵（agent-browser + VLM×5）：
+  → 方向：hover x=200 显示 b028ce18（最新区）；DOM row 0（4797abfa）
+    位于最左 left=2；锚点亮暗双模式可见（VLM 确认）
+  → rail：37 chips=可见窗口；点击第 5 个 chip → pulse-ring 出现 +
+    下方面板显示该 commit（"deps: proxy-addr"）+ 默认提示消失
+  → Back to latest：wheel 12×260 → 出现（footer 内 y=736，画布外，
+    物理不可被 tooltip 覆盖）→ 点击回 1–41 → 自动隐藏；竖版同链路
+    （73–97 → 1–21）；220% 缩放后仍正确出现（缩放锚点漂移场景）
+  → 密度升级：182%=色点+hash → 220%=BUILD 徽章+完整消息
+  → 筛选：点 Conventions fix 行 → rail 31 中 28 降饱和、匹配节点
+    halo、footer chip、timeline "type: fix" 全联动；VLM 确认对比度佳
+  → 移动端 390px：overflowX=0、rail 48px 单行 13 chips、lane 标签
+    可读（VLM BUGS NONE）；竖版回归：消息列表 21 行正常
+  → 控制台 0 错误；dev.log 全 200；lint 零错误；tsc 项目内零错误
+- 推送 GitHub：ed031b1（含 Claude trailer）
+
+Stage Summary:
+- 横向视图完成"正常观感"改造：从左往右读=从最新到最旧，与竖版
+  上→下阅读完全同构；wheel/拖拽/键盘方向语义全部一致化，导出图同步
+- 横向信息架构补齐最后缺口：底部 rail 让每条可见 commit 都有对齐的
+  信息载体（四级密度自适应缩放），hover/click 与图、tooltip、下方面板
+  全链路联动 —— 用户"和纵向对应起来"的要求达成
+- 返回顶部按钮从"被 tooltip 追着挡"变为 footer 常驻位（物理隔离 +
+  紧贴信息面板），位置指示器与方向图例同条收纳，图卡信息层级更清晰
+- 类型筛选从"timeline 专属"升级为全应用视觉语言：卡片行→图节点
+  （降饱和+halo）→消息列表→rail 四处同色同语义
+
+未解决问题或风险，建议下一阶段优先事项:
+1. 【下一步建议】rail 密度阈值微调：badge+message 级需 220% 缩放才
+   出现，可把阈值 110 降到 ~96 或桌面 rail 加高到 3 行（104px）让
+   默认缩放即显示部分消息；顺带 rail 加 author 列（slot>200 时）
+2. 【下一步建议】PNG 导出补 rail 与筛选状态：buildViewSvg 目前不含
+   底部 rail 与类型 halo，导出图与屏上图仍有可感知差异
+3. 【下一步建议】timeline 类型筛选行加"在图中高亮"提示文案，让
+   卡片↔图联动更可发现（现在 footer chip 已有但入口认知弱）
+4. 沙箱重启仍会清 repos/demo 与 .env.local —— 开工先跑
+   ls repos/demo/.git && cat .env.local 体检
+5. self 仓库叙事：本次为第 13 个 Task commit（ed031b1）
