@@ -9,14 +9,27 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
 import type {
-  GitCommit,
   GitIntegrity,
   RepoOverview,
 } from '@/lib/git/types'
 
+/** the fields the audit actually inspects — structural so both the full
+ *  GitCommit and the slim GraphCommit shapes satisfy it */
+export interface AuditCommit {
+  hash: string
+  shortHash: string
+  author: string
+  authorEmail: string
+  message: string
+  committedAt: string
+  parents: string[]
+  isMerge: boolean
+  branchCount?: number
+}
+
 export interface IntegrityCardProps {
   overview: RepoOverview | undefined
-  commits?: Array<GitCommit | (GitCommit & { branchCount?: number })>
+  commits?: AuditCommit[]
   fetchMs?: number
   loading: boolean
   /** true when the client intentionally shows a filtered subset
@@ -31,7 +44,7 @@ interface Audit {
   detail: string
 }
 
-function auditCommits(commits: Array<{ [k: string]: unknown }>): Audit[] {
+function auditCommits(commits: AuditCommit[]): Audit[] {
   let missingHash = 0
   let missingAuthor = 0
   let missingMessage = 0
@@ -43,7 +56,7 @@ function auditCommits(commits: Array<{ [k: string]: unknown }>): Audit[] {
     if (!c.author || !c.authorEmail) missingAuthor++
     if (!c.message) missingMessage++
     if (!c.committedAt || Number.isNaN(Date.parse(String(c.committedAt)))) missingTime++
-    const parents = c.parents as unknown[] | undefined
+    const parents = c.parents
     const isMerge = Boolean(c.isMerge)
     if (!Array.isArray(parents) || (isMerge && parents.length < 2) || (!isMerge && parents.length > 1)) {
       mergeInconsistent++

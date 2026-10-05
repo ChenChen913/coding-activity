@@ -649,7 +649,7 @@ export function CommitGraph({
   /* ---------------- keyboard navigation ------------------------------- */
   /* ArrowUp/ArrowDown move the selection through history (newest first),
      Escape clears it. In horizontal mode ←/→ travel through time too
-     (→ = newer, ← = older). The container is focusable, so keyboard users
+     (→ = older, ← = newer). The container is focusable, so keyboard users
      can browse the graph without a mouse. */
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -917,11 +917,11 @@ export function CommitGraph({
 
   /* ---------------- back-to-home (newest) footer button ------------- */
   /** true once the viewport has travelled away from the newest commits:
-   *  vertical → scrolled down from the top; horizontal → panned right
-   *  of the left edge where the newest commits live */
+   *  vertical → scrolled down from the top; horizontal → panned away
+   *  (rightward, tx < 0) from the left edge where the newest live */
   const awayFromHome = geo
     ? horiz
-      ? hTimeW > svgW && effTx > 120
+      ? hTimeW > svgW && effTx < -120
       : geo.totalH > viewH && effTy > 120
     : false
 
@@ -1149,7 +1149,7 @@ export function CommitGraph({
             title="Oldest"
             onClick={() =>
               horiz
-                ? animateTo({ ty: effTy, tx: 0 })
+                ? animateTo({ ty: effTy, tx: hOldestTx })
                 : animateTo({
                     ty: geo
                       ? geo.totalH <= viewH
@@ -1170,7 +1170,7 @@ export function CommitGraph({
         role="application"
         aria-label="Commit graph — arrow keys move the selection, Escape clears it"
         tabIndex={0}
-        className="relative h-[440px] touch-none select-none overflow-hidden overscroll-contain outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 md:h-[600px]"
+        className="relative h-[400px] touch-none select-none overflow-hidden overscroll-contain outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 md:h-[560px]"
         style={{ cursor: 'grab' }}
         onPointerDown={onPointerDown}
         onDoubleClick={onDoubleClick}
@@ -1266,12 +1266,13 @@ export function CommitGraph({
                     {m.label}
                   </div>
                 ))}
-                {/* fixed direction anchors — time flows left → right */}
-                <span className="absolute inset-y-0 left-0 flex items-center bg-gradient-to-r from-background via-background/85 to-transparent pl-2.5 pr-7 text-[10px] font-medium text-muted-foreground">
-                  ← older
+                {/* fixed direction anchors — reading runs left → right,
+                    newest first (mirrors the vertical top → down) */}
+                <span className="absolute inset-y-0 left-0 flex items-center bg-gradient-to-r from-background via-background/85 to-transparent pl-2.5 pr-7 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                  ← newest
                 </span>
-                <span className="absolute inset-y-0 right-0 flex items-center bg-gradient-to-l from-background via-background/85 to-transparent pl-7 pr-2.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
-                  newer →
+                <span className="absolute inset-y-0 right-0 flex items-center bg-gradient-to-l from-background via-background/85 to-transparent pl-7 pr-2.5 text-[10px] font-medium text-muted-foreground">
+                  oldest →
                 </span>
               </div>
             )}
@@ -1287,7 +1288,7 @@ export function CommitGraph({
                 {laneLabels.map((ln, i) => {
                   const laneH = hLanesH > 0 ? geo.lw : 0
                   const y = TOP_PAD + i * laneH + laneH / 2 - effTy
-                  if (y < -10 || y > size.h - AXIS_H + 10) return null
+                  if (y < -10 || y > size.h - AXIS_H - railH + 10) return null
                   const color = laneColor(i)
                   const compact = geo.lw < 15 // too zoomed out — dots only
                   const h = compact
@@ -1347,6 +1348,157 @@ export function CommitGraph({
               </div>
             )}
 
+            {/* horizontal layout: bottom commit-info rail — the
+                counterpart of the vertical message list: EVERY visible
+                commit gets a hit-area aligned under its column (ticks /
+                type dots when zoomed out, badge + message when zoomed
+                in); hover shows the full tooltip, click selects */}
+            {horiz && (
+              <div
+                className="absolute bottom-0 left-0 right-0 z-[6]"
+                style={{ height: railH }}
+              >
+                <div
+                  className="absolute inset-y-0 left-0 flex items-center justify-center border-r border-t bg-background/75 px-1"
+                  style={{ width: labelW }}
+                >
+                  <span className="truncate text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/80">
+                    commits
+                  </span>
+                </div>
+                <div
+                  className="absolute inset-y-0 overflow-hidden border-t bg-background/55 backdrop-blur-[2px]"
+                  style={{ left: labelW, right: 0 }}
+                  onMouseLeave={onMouseLeave}
+                >
+                  {visible.nodes.map((nd) => {
+                    const c = nd.commit
+                    const cw = geo.rh
+                    const cx = LEFT_PAD + nd.row * cw + cw / 2 + effTx
+                    const slot = cw * railRows
+                    const dim = isDimmed(c.hash)
+                    const isSelected = c.hash === selectedHash
+                    const isHovered = hoveredRow === nd.row
+                    const type = typeOf.get(c.hash)
+                    const tColor = type ? TYPE_META[type].color : laneColor(nd.lane)
+                    const chipH = railRows === 1 ? railH - 12 : (railH - 14) / 2
+                    const top =
+                      railRows === 1 ? 6 : 6 + (nd.row % railRows) * (chipH + 2)
+                    const stateCls = `${
+                      isSelected
+                        ? 'bg-accent ring-1 ring-inset ring-border'
+                        : isHovered
+                          ? 'bg-muted/60'
+                          : ''
+                    } ${!isSelected && dim ? 'opacity-40 saturate-50' : ''}`
+                    if (slot < 14) {
+                      // ultra-dense: one structural tick per commit
+                      const w = Math.max(cw, 10)
+                      return (
+                        <button
+                          key={c.hash}
+                          type="button"
+                          aria-label={`Commit ${c.shortHash} ${c.message}`}
+                          className={`absolute cursor-pointer rounded ${stateCls}`}
+                          style={{ left: cx - w / 2, width: w, top: 8, bottom: 8 }}
+                          onClick={() => selectCommit(c.hash)}
+                          onMouseEnter={() => setHoveredRow(nd.row)}
+                        >
+                          <span
+                            className="absolute left-1/2 top-0 bottom-0 w-[2px] -translate-x-1/2 rounded-full"
+                            style={{
+                              backgroundColor: isSelected
+                                ? '#10b981'
+                                : laneColor(nd.lane),
+                            }}
+                            aria-hidden
+                          />
+                        </button>
+                      )
+                    }
+                    if (slot < 46) {
+                      // dense: a type-colored dot per commit
+                      const w = Math.max(cw, 14)
+                      return (
+                        <button
+                          key={c.hash}
+                          type="button"
+                          aria-label={`Commit ${c.shortHash} ${c.message}`}
+                          className={`absolute flex cursor-pointer items-center justify-center rounded-md ${stateCls}`}
+                          style={{ left: cx - w / 2, width: w, top, height: chipH }}
+                          onClick={() => selectCommit(c.hash)}
+                          onMouseEnter={() => setHoveredRow(nd.row)}
+                        >
+                          <span
+                            className="h-2 w-2 rounded-full"
+                            style={{ backgroundColor: tColor }}
+                            aria-hidden
+                          />
+                        </button>
+                      )
+                    }
+                    const w = Math.min(slot - 4, 320)
+                    if (slot < 110) {
+                      // medium: type dot + short hash
+                      return (
+                        <button
+                          key={c.hash}
+                          type="button"
+                          aria-label={`Commit ${c.shortHash} ${c.message}`}
+                          className={`absolute flex cursor-pointer items-center gap-1 overflow-hidden rounded-md px-1.5 ${stateCls}`}
+                          style={{ left: cx - w / 2, width: w, top, height: chipH }}
+                          onClick={() => selectCommit(c.hash)}
+                          onMouseEnter={() => setHoveredRow(nd.row)}
+                        >
+                          <span
+                            className="h-1.5 w-1.5 shrink-0 rounded-full"
+                            style={{ backgroundColor: tColor }}
+                            aria-hidden
+                          />
+                          <span className="truncate font-mono text-[9px] text-muted-foreground">
+                            {c.shortHash}
+                          </span>
+                          {c.aiAgent && (
+                            <span
+                              className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500"
+                              aria-label="AI-assisted commit"
+                            />
+                          )}
+                        </button>
+                      )
+                    }
+                    // roomy: type badge + message (like the vertical list)
+                    return (
+                      <button
+                        key={c.hash}
+                        type="button"
+                        aria-label={`Commit ${c.shortHash} ${c.message}`}
+                        className={`absolute flex cursor-pointer items-center gap-1 overflow-hidden rounded-md px-1.5 ${stateCls}`}
+                        style={{ left: cx - w / 2, width: w, top, height: chipH }}
+                        onClick={() => selectCommit(c.hash)}
+                        onMouseEnter={() => setHoveredRow(nd.row)}
+                      >
+                        <CommitTypeBadge message={c.message} />
+                        <span
+                          className={`truncate text-[10px] ${
+                            isSelected ? 'font-semibold' : 'font-medium'
+                          }`}
+                        >
+                          {c.message}
+                        </span>
+                        {c.aiAgent && (
+                          <span
+                            className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500"
+                            aria-label="AI-assisted commit"
+                          />
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* lane area */}
             <svg
               className="absolute inset-y-0 block"
@@ -1369,6 +1521,8 @@ export function CommitGraph({
                   selectedHash={selectedHash}
                   intro={intro}
                   onSelect={selectCommit}
+                  isDimmed={isDimmed}
+                  typeHalo={typeHalo}
                 />
               )}
               {!horiz && (
@@ -1427,6 +1581,8 @@ export function CommitGraph({
                   const color = laneColor(nd.lane)
                   const isSelected = nd.commit.hash === selectedHash
                   const isHovered = hoveredRow === nd.row
+                  const dim = isDimmed(nd.commit.hash)
+                  const halo = typeHalo(nd.commit.hash)
                   const r =
                     geo.nodeR *
                     (nd.commit.isMerge ? 1.15 : 1) *
@@ -1440,6 +1596,15 @@ export function CommitGraph({
                           fill="none"
                           stroke={color}
                           strokeWidth={1.5}
+                        />
+                      )}
+                      {halo && (
+                        <circle
+                          r={r + 2.5}
+                          fill="none"
+                          stroke={halo}
+                          strokeWidth={1.3}
+                          opacity={0.85}
                         />
                       )}
                       <circle
@@ -1472,6 +1637,7 @@ export function CommitGraph({
                       key={nd.commit.hash}
                       transform={`translate(${x} ${y})`}
                       className="cursor-pointer"
+                      style={{ opacity: !isSelected && dim ? 0.25 : 1 }}
                       onClick={() => selectCommit(nd.commit.hash)}
                     >
                       <motion.g
@@ -1492,6 +1658,7 @@ export function CommitGraph({
                       key={nd.commit.hash}
                       transform={`translate(${x} ${y})`}
                       className="cursor-pointer"
+                      style={{ opacity: !isSelected && dim ? 0.25 : 1 }}
                       onClick={() => selectCommit(nd.commit.hash)}
                     >
                       {inner}
@@ -1525,7 +1692,7 @@ export function CommitGraph({
                       aria-label={`Commit ${c.shortHash} ${c.message}`}
                       className={`absolute left-0 right-0 cursor-pointer ${
                         isSelected ? 'bg-accent' : isHovered ? 'bg-muted/60' : ''
-                      }`}
+                      } ${!isSelected && isDimmed(c.hash) ? 'opacity-40 saturate-50' : ''}`}
                       style={{ top, height: geo.rh }}
                       onClick={() => selectCommit(c.hash)}
                       onMouseEnter={() => setHoveredRow(nd.row)}
@@ -1546,7 +1713,7 @@ export function CommitGraph({
                     }}
                     className={`absolute left-0 right-0 flex cursor-pointer items-center gap-2 px-3 outline-none focus-visible:bg-muted ${
                       isSelected ? 'bg-accent' : isHovered ? 'bg-muted/60' : ''
-                    }`}
+                    } ${!isSelected && isDimmed(c.hash) ? 'opacity-40 saturate-50' : ''}`}
                     style={{ top, height: geo.rh }}
                     onClick={() => selectCommit(c.hash)}
                     onMouseEnter={() => setHoveredRow(nd.row)}
@@ -1650,16 +1817,6 @@ export function CommitGraph({
               )}
             </div>
 
-            {/* position indicator */}
-            <div className="pointer-events-none absolute bottom-2 right-2 z-10 flex items-center gap-1.5 rounded-full border bg-background/85 px-2.5 py-1 text-[10px] font-medium tabular-nums text-muted-foreground shadow-sm backdrop-blur-sm">
-              <span>
-                {(visible.startRow + 1).toLocaleString()}–
-                {(visible.endRow + 1).toLocaleString()}
-              </span>
-              <span className="text-border">/</span>
-              <span>{commits.length.toLocaleString()}</span>
-            </div>
-
             {/* travel-direction feedback (horizontal) — flashes while
                 panning, makes the axis reading direction unmistakable */}
             {horiz && (
@@ -1671,61 +1828,118 @@ export function CommitGraph({
                     animate={{ opacity: 1, y: 0, x: '-50%' }}
                     exit={{ opacity: 0, y: 8, x: '-50%' }}
                     transition={{ duration: 0.16, ease: 'easeOut' }}
-                    className={`pointer-events-none absolute bottom-2 left-1/2 z-10 inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-semibold shadow-sm backdrop-blur-sm ${
-                      flowHint === 1
+                    style={{ bottom: railH + 8 }}
+                    className={`pointer-events-none absolute left-1/2 z-10 inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-semibold shadow-sm backdrop-blur-sm ${
+                      flowHint === -1
                         ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
                         : 'border-border bg-background/85 text-muted-foreground'
                     }`}
                   >
-                    {flowHint === 1 ? 'newer →' : '← older'}
+                    {flowHint === -1 ? '← newer' : 'older →'}
                   </motion.div>
                 )}
               </AnimatePresence>
             )}
 
-            {/* back to newest commits — floats in once you travel away
-                (vertical: back to top · horizontal: back to right edge) */}
-            <AnimatePresence>
-              {awayFromHome && (
-                <motion.div
-                  key="back-home"
-                  initial={{ opacity: 0, scale: 0.8, y: 6 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.8, y: 6 }}
-                  transition={{ duration: 0.18, ease: 'easeOut' }}
-                  className="absolute bottom-10 right-2 z-20"
-                >
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="h-10 w-10 rounded-full border-border/80 bg-background/90 shadow-md backdrop-blur-md"
-                    aria-label={
-                      horiz
-                        ? 'Back to the newest commits (right edge)'
-                        : 'Back to the newest commits (top)'
-                    }
-                    title={horiz ? 'Back to latest' : 'Back to top'}
-                    onClick={goHome}
-                  >
-                    {horiz ? (
-                      <ArrowRightToLine className="h-4 w-4" />
-                    ) : (
-                      <ArrowUpToLine className="h-4 w-4" />
-                    )}
-                  </Button>
-                </motion.div>
-              )}
-            </AnimatePresence>
           </>
         )}
+      </div>
+
+      {/* footer — OUTSIDE the canvas on purpose: the back-to-latest
+          control can never be covered by hover tooltips, and the strip
+          sits right beside the commit-detail panel (vertical: sidebar ·
+          horizontal: the always-visible panel below) */}
+      <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-t px-3">
+        <div className="flex min-w-0 items-center gap-2">
+          {typeFilterActive ? (
+            <span
+              role="status"
+              className="inline-flex min-w-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-medium"
+              style={{
+                borderColor: `${filterColor ?? '#a8a29e'}55`,
+                backgroundColor: `${filterColor ?? '#a8a29e'}14`,
+                color: filterColor ?? undefined,
+              }}
+            >
+              <span
+                className="h-1.5 w-1.5 shrink-0 rounded-full"
+                style={{ backgroundColor: filterColor ?? undefined }}
+                aria-hidden
+              />
+              <span className="truncate">
+                type filter:{' '}
+                {typeFilterKinds?.slice(0, 3).join(' · ')}
+                {(typeFilterKinds?.length ?? 0) > 3
+                  ? ` +${(typeFilterKinds?.length ?? 0) - 3}`
+                  : ''}{' '}
+                — non-matching commits dimmed
+              </span>
+            </span>
+          ) : (
+            <span
+              className="hidden items-center gap-1.5 text-[10px] text-muted-foreground sm:inline-flex"
+              aria-hidden
+            >
+              <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                {horiz ? '← newest' : '↑ newest'}
+              </span>
+              <span className="text-border">·</span>
+              <span>{horiz ? 'oldest →' : 'oldest ↓'}</span>
+            </span>
+          )}
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {visible && (
+            <span className="inline-flex items-center gap-1.5 rounded-full border bg-background px-2.5 py-1 text-[10px] font-medium tabular-nums text-muted-foreground">
+              <span>
+                {(visible.startRow + 1).toLocaleString()}–
+                {(visible.endRow + 1).toLocaleString()}
+              </span>
+              <span className="text-border">/</span>
+              <span>{commits.length.toLocaleString()}</span>
+            </span>
+          )}
+          <AnimatePresence>
+            {awayFromHome && (
+              <motion.div
+                key="back-home"
+                initial={{ opacity: 0, x: 10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 10 }}
+                transition={{ duration: 0.18, ease: 'easeOut' }}
+              >
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 gap-1.5 border-emerald-500/40 px-2.5 text-[11px] font-semibold text-emerald-700 shadow-sm hover:bg-emerald-50 hover:text-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-400/10 dark:hover:text-emerald-200"
+                  aria-label={
+                    horiz
+                      ? 'Back to the newest commits (left edge)'
+                      : 'Back to the newest commits (top)'
+                  }
+                  title={horiz ? 'Back to latest' : 'Back to top'}
+                  onClick={goHome}
+                >
+                  {horiz ? (
+                    <ArrowLeftToLine className="h-3.5 w-3.5" />
+                  ) : (
+                    <ArrowUpToLine className="h-3.5 w-3.5" />
+                  )}
+                  Back to latest
+                </Button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       </div>
     </div>
   )
 }
 
 /* ------------------------------------------------------------------ */
-/*  Horizontal layout — time flows left (oldest) → right (newest),     */
-/*  lanes stack top to bottom. Same data, same colors, rotated view.   */
+/*  Horizontal layout — newest (row 0) sits at the LEFT edge so the    */
+/*  graph reads left → right exactly like the vertical list reads      */
+/*  top → down; lanes stack top to bottom. Same data, same colors.     */
 /* ------------------------------------------------------------------ */
 
 function HorizontalGraph({
@@ -1738,6 +1952,8 @@ function HorizontalGraph({
   selectedHash,
   intro,
   onSelect,
+  isDimmed,
+  typeHalo,
 }: {
   layout: GraphLayout
   geo: Geo
@@ -1748,12 +1964,16 @@ function HorizontalGraph({
   selectedHash: string | null
   intro: boolean
   onSelect: (hash: string) => void
+  /** commit is outside the active type filter → render dimmed */
+  isDimmed: (hash: string) => boolean
+  /** type-colored halo stroke for filter-matching commits (null = off) */
+  typeHalo: (hash: string) => string | null
 }) {
-  const n = layout.nodes.length
   const cw = geo.rh // column width along x (reuses the row height metric)
 
-  /** world x of a row — newest (row 0) on the right */
-  const timeX = (row: number) => LEFT_PAD + (n - 1 - row) * cw + cw / 2
+  /** world x of a row — newest (row 0) at the LEFT edge, so reading
+   *  left → right runs newest → oldest (mirrors vertical top → down) */
+  const timeX = (row: number) => LEFT_PAD + row * cw + cw / 2
   /** world y of a lane center */
   const laneY = (lane: number) => TOP_PAD + lane * geo.lw + geo.lw / 2
 
@@ -1763,8 +1983,9 @@ function HorizontalGraph({
     const x2 = timeX(e.parentRow) + effTx
     const y2 = laneY(e.parentLane) - effTy
     if (y1 === y2) return `M ${x1} ${y1} L ${x2} ${y2}`
-    const k = Math.min(cw * 0.55, Math.max(0, (x1 - x2) / 2))
-    return `M ${x1} ${y1} C ${x1 - k} ${y1} ${x2 + k} ${y2} ${x2} ${y2}`
+    // child (newer) sits left of parent (older) — bend toward each other
+    const k = Math.min(cw * 0.55, Math.max(0, (x2 - x1) / 2))
+    return `M ${x1} ${y1} C ${x1 + k} ${y1} ${x2 - k} ${y2} ${x2} ${y2}`
   }
 
   return (
@@ -1823,6 +2044,8 @@ function HorizontalGraph({
           const color = laneColor(nd.lane)
           const isSelected = nd.commit.hash === selectedHash
           const isHovered = hoveredRow === nd.row
+          const dim = isDimmed(nd.commit.hash)
+          const halo = typeHalo(nd.commit.hash)
           const r =
             geo.nodeR *
             (nd.commit.isMerge ? 1.15 : 1) *
@@ -1836,6 +2059,15 @@ function HorizontalGraph({
                   fill="none"
                   stroke={color}
                   strokeWidth={1.5}
+                />
+              )}
+              {halo && (
+                <circle
+                  r={r + 2.5}
+                  fill="none"
+                  stroke={halo}
+                  strokeWidth={1.3}
+                  opacity={0.85}
                 />
               )}
               <circle
@@ -1868,6 +2100,7 @@ function HorizontalGraph({
               key={nd.commit.hash}
               transform={`translate(${x} ${y})`}
               className="cursor-pointer"
+              style={{ opacity: !isSelected && dim ? 0.25 : 1 }}
               onClick={() => onSelect(nd.commit.hash)}
             >
               <motion.g
@@ -1888,6 +2121,7 @@ function HorizontalGraph({
               key={nd.commit.hash}
               transform={`translate(${x} ${y})`}
               className="cursor-pointer"
+              style={{ opacity: !isSelected && dim ? 0.25 : 1 }}
               onClick={() => onSelect(nd.commit.hash)}
             >
               {inner}

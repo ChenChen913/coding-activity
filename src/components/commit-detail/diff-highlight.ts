@@ -544,6 +544,10 @@ function scanHtml(text: string): Token[] {
     }
     if (ch === '>' || (ch === '/' && text[i + 1] === '>')) {
       const m = text.slice(i).match(/^\/?>/)
+      if (!m) {
+        i += 1
+        continue
+      }
       out.push({ text: m[0], type: 'tag' })
       i += m[0].length
       continue

@@ -131,7 +131,8 @@ function edgeSvg(
   if (horizontal) {
     if (y1 === y2) return `<path d="M ${f(x1)} ${f(y1)} L ${f(x2)} ${f(y2)}" stroke="${color}" stroke-width="${f(w)}" fill="none" stroke-linecap="round" opacity="${opacity}"/>`
     const k = Math.min(w * 8, Math.abs(x1 - x2) / 2)
-    return `<path d="M ${f(x1)} ${f(y1)} C ${f(x1 - k)} ${f(y1)} ${f(x2 + k)} ${f(y2)} ${f(x2)} ${f(y2)}" stroke="${color}" stroke-width="${f(w)}" fill="none" stroke-linecap="round" opacity="${opacity}"/>`
+    const s = x2 >= x1 ? 1 : -1 // bend toward each other whichever way time runs
+    return `<path d="M ${f(x1)} ${f(y1)} C ${f(x1 + s * k)} ${f(y1)} ${f(x2 - s * k)} ${f(y2)} ${f(x2)} ${f(y2)}" stroke="${color}" stroke-width="${f(w)}" fill="none" stroke-linecap="round" opacity="${opacity}"/>`
   }
   if (x1 === x2) return `<path d="M ${f(x1)} ${f(y1)} L ${f(x2)} ${f(y2)}" stroke="${color}" stroke-width="${f(w)}" fill="none" stroke-linecap="round" opacity="${opacity}"/>`
   const k = Math.min(w * 8, (y2 - y1) / 2)
@@ -172,7 +173,8 @@ export function buildViewSvg(layout: GraphLayout, o: ViewExportOptions): { svg: 
 
   const laneXOf = (lane: number) => LEFT_PAD + lane * geo.lw + geo.lw / 2
   const rowYOf = (row: number) => TOP_PAD + row * geo.rh + geo.rh / 2
-  const timeXOf = (row: number) => LEFT_PAD + (n - 1 - row) * geo.rh + geo.rh / 2
+  // newest (row 0) at the LEFT edge — matches the on-screen horizontal view
+  const timeXOf = (row: number) => LEFT_PAD + row * geo.rh + geo.rh / 2
   const laneYOf = (lane: number) => TOP_PAD + lane * geo.lw + geo.lw / 2
 
   const parts: string[] = []
@@ -367,7 +369,7 @@ export function buildPosterSvg(
   const laneXOf = (lane: number) => LEFT_PAD + lane * LANE_W + LANE_W / 2
   const laneYOf = (lane: number) => TOP_PAD + lane * LANE_W + LANE_W / 2
   const timeYOf = (row: number) => TOP_PAD + row * rh + rh / 2 // vertical poster
-  const timeXOf = (row: number) => LEFT_PAD + (n - 1 - row) * rh + rh / 2 // horizontal poster
+  const timeXOf = (row: number) => LEFT_PAD + row * rh + rh / 2 // horizontal poster (newest at the left)
 
   const parts: string[] = []
   parts.push(`<rect width="${W}" height="${H}" fill="${p.bg}"/>`)

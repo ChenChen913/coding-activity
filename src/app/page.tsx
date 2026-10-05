@@ -455,6 +455,7 @@ export default function Home() {
                   key={repoId}
                   orientation={orientation}
                   onOrientationChange={toggleOrientation}
+                  typeFilterKinds={typeFilter?.kinds ?? null}
                   commits={commits}
                   loading={commitsQuery.isLoading || !commitsMatchRepo}
                   fetching={commitsQuery.isFetching && commitsMatchRepo}
