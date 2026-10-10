@@ -1415,3 +1415,48 @@ Stage Summary:
    ls repos/demo/.git && cat .env.local 体检；demo 可用
    bash scripts/demo.sh restore 一键恢复（页面自动感知）
 5. self 仓库叙事：本次为第 18 个 Task commit
+
+---
+Task ID: 19
+Agent: main (Z.ai Code, user-requested round)
+Task: 仓库对外发布整备（用户三点意见）—— ①补英文版 README（独立文件 README_EN.md）②仓库更名 coding-activity → git-activity（名字体现 git 主题）③添加 GitHub topics 标签 ④README 加入截图 ⑤运行体检 + 顺手修复发现的问题
+
+Work Log:
+- 19-a 运行体检：bun install 全量安装、demo bundle restore（6,436 commits）、dev server 启动、API/页面全 200、eslint 零错误
+- 19-b 截图产出（1600×900，agent-browser + VLM 三轮校验）：
+  screenshots/01-dashboard-overview.png（express 主仪表盘）、
+  02-insight-cards.png（洞察卡片）、03-timeline.png（时间线+Live Events）、
+  04-commit-detail.png（详情面板+展开 diff 的红绿高亮）、
+  05-self-repo-ai-commits.png（self 仓库 38 commits / 24 AI 视图）
+- 19-c 安全修复：src/lib/git/repo.ts getRemote() 原样返回 remote URL，
+  若用户以 https://TOKEN@github.com/... 克隆被监控仓库，token 会经
+  /api/git/repo 泄露到浏览器 —— 新增 stripCredentials() 在出服务端前
+  剥离 userinfo；验证 self 的 API 响应已无凭据
+- 19-c 清理：移除误提交的 download/（脚手架遗留 README + 一张调试截图）；
+  package.json name 从脚手架默认 nextjs_tailwind_shadcn_ts 改为 git-activity；
+  repos.ts self 显示名同步为 git-activity
+- 19-d 仓库更名：GitHub API PATCH → ChenChen913/git-activity（旧 URL
+  自动重定向）；本地 remote URL 同步更新；README 克隆地址与注册表
+  文档同步改名
+- 19-e README：中文版顶部加 简体中文|English 切换链接、新增「截图」
+  章节（5 张配图说明）；README_EN.md 全新英文版（结构对等、含截图）
+- 19-f topics：20 个标签覆盖四维——主题（git/git-visualization/
+  git-graph/git-dashboard/commit-graph/git-history/data-visualization/
+  dashboard）、AI 特色（ai-coding/ai-collaboration/claude-code/copilot/
+  cursor）、技术栈（nextjs/react/typescript/tailwindcss/shadcn-ui/svg）、
+  受众（developer-tools）
+
+Stage Summary:
+- 安全：remote URL 凭据泄露通道已关闭（出站前剥离 userinfo）
+- 对外：双语 README + 5 张实拍截图 + 20 个 topics + git-activity 新名
+- 发现未改：?repo=self URL 参数不生效（页面停在 demo，需手动切换器）——
+  疑似前端未读取 query param 或被状态覆盖，留给下一任务定位
+
+未解决问题或风险，建议下一阶段优先事项:
+1. 【本任务发现】?repo=<id> query 参数疑似不驱动仓库切换（reload 后
+   仍显示 demo）—— 建议定位 page.tsx 的初始 repo 状态来源，补上
+   URL ↔ 状态同步（含浏览器历史前进后退）
+2. 【下一步建议】补 LICENSE（当前仓库无许可证，别人不敢用也不敢 PR）
+3. 【下一步建议】README badge 可加 topics 之外的 CI/languages 徽章；
+   截图可补一张横版布局（Switch to horizontal）展示 W-H 双形态
+4. self 仓库叙事：本次为第 19 个 Task commit

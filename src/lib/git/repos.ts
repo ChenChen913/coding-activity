@@ -25,7 +25,7 @@ export function getRegistry(): RepoRegistryEntry[] {
     },
     {
       id: 'self',
-      name: 'ai-coding-activity',
+      name: 'git-activity',
       path: process.cwd(),
       description: 'This project itself — watch the tool being built by AI',
     },

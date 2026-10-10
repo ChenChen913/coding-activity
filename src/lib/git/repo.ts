@@ -28,12 +28,24 @@ function parseGithubRemote(url: string): {
   }
 }
 
+/**
+ * Strip embedded credentials from a remote URL before it leaves the server.
+ * Cloning with a token in the URL (https://TOKEN@github.com/...) is common
+ * for monitored repos — that token must never reach the browser via the API.
+ */
+function stripCredentials(url: string): string {
+  return url
+    .replace(/^(https?:\/\/)[^@/]+@/i, '$1') // https://user:token@host/...
+    .replace(/^(\w+:\/\/)[^@/]+@/i, '$1') // any other scheme with userinfo
+}
+
 /** Origin remote of a repository (GitHub URL parsed when present). */
 export async function getRemote(repoPath: string): Promise<GitRemoteInfo | undefined> {
   try {
-    const url = (await git(['remote', 'get-url', 'origin'], repoPath, 5_000))
+    const raw = (await git(['remote', 'get-url', 'origin'], repoPath, 5_000))
       .trim()
-    if (!url) return undefined
+    if (!raw) return undefined
+    const url = stripCredentials(raw)
     const github = parseGithubRemote(url)
     return {
       name: 'origin',
