@@ -114,7 +114,7 @@ bash scripts/demo.sh remove    # 删除演示数据，回到干净空间
 
 保存后刷新页面，顶部的仓库切换栏里就会出现你的仓库。**不需要重启服务**（API 每次请求都读注册表）。
 
-> 提示：也可以用 `git clone` 把要监控的远程仓库放进 `repos/` 目录（`repos/` 已被 gitignore，不会被提交）。顶部仓库切换器会把当前仓库同步到 URL（`?repo=<id>`），刷新、分享链接、浏览器后退都指向同一个仓库。
+> 提示：也可以用 `git clone` 把要监控的远程仓库放进 `repos/` 目录（`repos/` 已被 gitignore，不会被提交）。视图状态会同步到 URL：`?repo=<id>`（仓库）、`?branch=<name>`（分支）、`?layout=horizontal|vertical`（横竖版）——刷新、分享链接、浏览器后退都指向同一个视图。
 
 ### 数据获取方式
 

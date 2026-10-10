@@ -114,7 +114,7 @@ Every data source is registered here. Two are built in:
 
 Save and refresh the page — your repository appears in the switcher at the top. **No server restart needed** (APIs re-read the registry on every request).
 
-> Tip: you can also `git clone` remote repositories you want to monitor into the `repos/` directory (`repos/` is gitignored and never committed). The repository switcher mirrors the active repository into the URL (`?repo=<id>`) — refreshing, sharing the link, and browser back/forward all point at the same repository.
+> Tip: you can also `git clone` remote repositories you want to monitor into the `repos/` directory (`repos/` is gitignored and never committed). The view state mirrors into the URL: `?repo=<id>` (repository), `?branch=<name>` (branch), `?layout=horizontal|vertical` (orientation) — refreshing, sharing the link, and browser back/forward all restore the same view.
 
 ### How data is fetched
 

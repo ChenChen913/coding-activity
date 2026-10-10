@@ -1505,3 +1505,58 @@ Stage Summary:
 2. 【下一步建议】GitHub About 栏可补 homepage（若部署线上 demo）；
   topics 已齐 20 个，star 数上来后可申请 GitHub topics 精选
 3. self 仓库叙事：本次为第 20 个 Task commit
+
+---
+Task ID: 21
+Agent: main (Z.ai Code, user-requested round)
+Task: Task 20 遗留建议落地 —— 视图状态全面进 URL：?branch=（分支过滤）+ ?layout=（横竖版）双向绑定，分享链接可还原完整视图
+
+Work Log:
+- 21-a 方案设计（三个参数三种语义，各有依据）：
+  · ?repo / ?layout：缺失时规范化补齐（replaceState）——保证每个
+    history entry 自包含，back/forward 才能精确还原；layout 必须
+    规范化是因为 localStorage 偏好每次 toggle 都会变，缺失语义不确定
+  · ?branch：缺失 = all branches（语义确定，无跨会话存储），不规范化
+  · 关键决策：localStorage 布局恢复逻辑从独立 effect 合并进 URL 绑定
+    仲裁 effect（ref 防重入）——否则挂载时两个 effect 竞争，一个设
+    horizontal 一个按 URL 压回 vertical，来回翻转
+- 21-b 实现（src/app/page.tsx）：
+  · 统一 URL 仲裁 effect：layout（param 优先且回写偏好；缺失时
+    恢复一次 localStorage 并 pin 进 URL）→ repo（先应用，return 后
+    靠 effect 重跑接力 branch，避免跨仓库误伤）→ branch（缺失=all）
+  · switchingBranch：Select 切分支 pushState（all 时删参）
+  · switchingRepo / clean-first-run 守卫：切仓库时连带删 ?branch=
+    （分支表随仓库不同）
+  · 新增 invalid-branch 守卫：分支列表加载后校验，无效分支回退 all
+    + replaceState 清参 —— 沿用 Task 20 沉淀的"状态重置与 URL 同步
+    必须成对"纪律
+  · toggleOrientation 重构：next 在 setState 外计算，localStorage
+    与 pushState 同步写
+- 21-c QA 九项全过（agent-browser 实测）：
+  ① 裸参数访问 → URL 规范化 ?repo=demo&layout=vertical ✓
+  ② UI 切 master → &branch=master 同步 ✓
+  ③ reload → 分支保持 ✓
+  ④ back → 分支还原 all（参数消失）✓
+  ⑤ ?layout=horizontal 直载横版 ✓
+  ⑥ 布局切换按钮 ↔ URL ⑥b back → 横版精确还原 ✓（规范化设计的
+    正向验证）
+  ⑦ ?branch=nonexistent → 回退 all + URL 清洗，零死循环 ✓
+  ⑧ 带分支切仓库 → ?branch 随之清除 ✓
+  ⑨ 裸访问 / → localStorage 横版偏好恢复并 pin 进 URL ✓
+  （合并仲裁设计的正向验证）
+  tsc 零错误（examples/websocket 原有报错除外）、eslint 零错误
+- 21-d README 双语：注册表 Tip 扩写为三参数文档（repo/branch/layout）
+
+Stage Summary:
+- 视图状态三分量（仓库/分支/布局）全部 URL 化，分享链接 = 完整视图
+- URL 语义分类沉淀：确定性参数（branch 缺失=all）vs 不确定性参数
+  （layout 依赖可变偏好，必须规范化）—— 可迁移到未来 ?type= ?author=
+- 防竞争沉淀：浏览器存储恢复与 URL 应用必须是同一个仲裁者
+
+未解决问题或风险，建议下一阶段优先事项:
+1. 【下一步建议】?type=（提交类型过滤）与 ?author=（作者聚焦）进
+   URL：type 的 rowKey↔kinds 映射在 conventions-card 内部，需先
+   把序列化协议（如 ?type=feat:fix 逗号分隔 kinds）抽到 lib 层
+2. 【下一步建议】截图 06 是横版但 URL 文档刚落地，可在截图章节补
+   一句"试试 ?layout=horizontal 链接直达横版"
+3. self 仓库叙事：本次为第 21 个 Task commit

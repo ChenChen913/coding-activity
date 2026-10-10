@@ -129,32 +129,28 @@ export default function Home() {
    *  effect of the click is immediately visible */
   const timelineRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    // rAF-wrapped: reading a browser-only store after mount (SSR-safe),
-    // async so the lint set-state-in-effect rule stays satisfied
-    const raf = requestAnimationFrame(() => {
-      try {
-        const saved = localStorage.getItem('graph-orientation')
-        if (saved === 'horizontal' || saved === 'vertical')
-          setOrientation(saved)
-      } catch {
-        /* private mode — default vertical is fine */
-      }
-    })
-    return () => cancelAnimationFrame(raf)
-  }, [])
+  // orientation restore lives in the URL-binding arbiter below (single
+  // owner: a ?layout param wins and re-persists; otherwise the localStorage
+  // preference is restored exactly once on mount, then pinned into the URL
+  // so every history entry is self-contained for back/forward)
 
   const toggleOrientation = useCallback(() => {
-    setOrientation((prev) => {
-      const next = prev === 'vertical' ? 'horizontal' : 'vertical'
-      try {
-        localStorage.setItem('graph-orientation', next)
-      } catch {
-        /* ignore */
-      }
-      return next
-    })
-  }, [])
+    const next = orientation === 'vertical' ? 'horizontal' : 'vertical'
+    setOrientation(next)
+    try {
+      localStorage.setItem('graph-orientation', next)
+    } catch {
+      /* private mode — the URL still carries the state */
+    }
+    // mirror into the URL so a horizontal view is shareable / reversible
+    try {
+      const url = new URL(window.location.href)
+      url.searchParams.set('layout', next)
+      window.history.pushState(null, '', url)
+    } catch {
+      /* ignore */
+    }
+  }, [orientation])
 
   const now = useClock()
 
@@ -236,10 +232,12 @@ export default function Home() {
       setSelectedHash(null)
       setTypeFilter(null)
       // keep ?repo= in sync when falling back — otherwise the URL-binding
-      // effect below would re-apply the unavailable repo and ping-pong forever
+      // effect below would re-apply the unavailable repo and ping-pong forever;
+      // ?branch= belonged to the unavailable repo, so it falls with it
       try {
         const url = new URL(window.location.href)
         url.searchParams.set('repo', first.id)
+        url.searchParams.delete('branch')
         window.history.replaceState(null, '', url)
       } catch {
         /* ignore */
@@ -282,11 +280,14 @@ export default function Home() {
     setTypeFilter(null)
     // keep the URL shareable and back-button friendly: ?repo=<id> mirrors
     // the active repository (pushState only on a real change — popstate
-    // re-entry arrives with the URL already set and must not push again)
+    // re-entry arrives with the URL already set and must not push again);
+    // branch lists differ per repository, so ?branch= cannot survive a
+    // repo switch
     try {
       const url = new URL(window.location.href)
       if (url.searchParams.get('repo') !== id) {
         url.searchParams.set('repo', id)
+        url.searchParams.delete('branch')
         window.history.pushState(null, '', url)
       }
     } catch {
@@ -294,19 +295,87 @@ export default function Home() {
     }
   }
 
-  /** ?repo= ↔ active repository, two-way binding:
-   *  · mount + browser back/forward apply the URL param to the repo
-   *  · a param-less URL is normalized to ?repo=<current> so every
-   *    history entry (and therefore back/forward) stays recoverable */
+  /** branch switch from the toolbar Select — mirrors ?branch= into the
+   *  URL; "all branches" removes the param (absent = all, see below) */
+  const switchingBranch = (name: string) => {
+    setBranchFilter(name)
+    setAuthorFilter(null)
+    setSelectedHash(null)
+    try {
+      const url = new URL(window.location.href)
+      if (name && name !== 'all') url.searchParams.set('branch', name)
+      else url.searchParams.delete('branch')
+      window.history.pushState(null, '', url)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** URL ↔ view state, two-way binding (repo / branch / layout):
+   *  · mount + browser back/forward apply the URL params to the state
+   *  · ?repo and ?layout are normalized when absent so every history
+   *    entry stays self-contained (layout is ambiguous otherwise — the
+   *    localStorage preference mutates on every toggle)
+   *  · ?branch uses "absent = all branches" (deterministic, no
+   *    cross-session storage) and never needs normalizing
+   *  · the localStorage orientation preference is restored here exactly
+   *    once on mount — a ?layout param wins and re-persists it; keeping a
+   *    single arbiter avoids a restore/pin race between two effects */
+  const layoutRestored = useRef(false)
   useEffect(() => {
     const applyFromUrl = () => {
-      let fromUrl: string | null = null
+      let params: URLSearchParams
       try {
-        fromUrl = new URLSearchParams(window.location.search).get('repo')
+        params = new URLSearchParams(window.location.search)
       } catch {
-        /* ignore */
+        return
       }
-      if (!fromUrl) {
+
+      // layout — param wins (and re-persists); absent resolves from
+      // localStorage once (mount), then gets pinned into the URL
+      const layoutParam = params.get('layout')
+      let resolvedLayout: 'vertical' | 'horizontal' | null = null
+      if (layoutParam === 'horizontal' || layoutParam === 'vertical') {
+        resolvedLayout = layoutParam
+        try {
+          localStorage.setItem('graph-orientation', layoutParam)
+        } catch {
+          /* ignore */
+        }
+      } else if (!layoutRestored.current) {
+        try {
+          const saved = localStorage.getItem('graph-orientation')
+          if (saved === 'horizontal' || saved === 'vertical')
+            resolvedLayout = saved
+        } catch {
+          /* ignore */
+        }
+        layoutRestored.current = true
+      }
+      if (resolvedLayout && resolvedLayout !== orientation)
+        setOrientation(resolvedLayout)
+      if (!layoutParam) {
+        try {
+          const url = new URL(window.location.href)
+          url.searchParams.set('layout', resolvedLayout ?? orientation)
+          window.history.replaceState(null, '', url)
+        } catch {
+          /* ignore */
+        }
+      }
+
+      // repo — applied first so the entry's ?branch= lands on the right
+      // repository on the effect's re-run; absent gets normalized
+      const repoParam = params.get('repo')
+      if (repoParam && repoParam !== repoId) {
+        setRepoId(repoParam)
+        setBranchFilter('all')
+        setAuthorFilter(null)
+        setSelectedHash(null)
+        setTypeFilter(null)
+        return
+      }
+      if (!repoParam) {
         try {
           const url = new URL(window.location.href)
           url.searchParams.set('repo', repoId)
@@ -314,25 +383,50 @@ export default function Home() {
         } catch {
           /* ignore */
         }
-        return
       }
-      if (fromUrl === repoId) return
-      setRepoId(fromUrl)
-      setBranchFilter('all')
-      setAuthorFilter(null)
-      setSelectedHash(null)
-      setTypeFilter(null)
+
+      // branch — absent means "all branches"
+      const nextBranch = params.get('branch') || 'all'
+      if (nextBranch !== branchFilter) {
+        setBranchFilter(nextBranch)
+        setAuthorFilter(null)
+        setSelectedHash(null)
+      }
     }
     // rAF-wrapped on mount: async so the lint set-state-in-effect rule
-    // stays satisfied (same pattern as the orientation restore effect);
-    // re-runs caused by repoId changes short-circuit at the equality check
+    // stays satisfied (same pattern as the repo fallback guard above);
+    // re-runs caused by state changes short-circuit at the equality checks
     const raf = requestAnimationFrame(applyFromUrl)
     window.addEventListener('popstate', applyFromUrl)
     return () => {
       cancelAnimationFrame(raf)
       window.removeEventListener('popstate', applyFromUrl)
     }
-  }, [repoId])
+  }, [repoId, branchFilter, orientation])
+
+  /** invalid-branch guard: a ?branch= value the current repository doesn't
+   *  have (stale link, branch of another repo) falls back to "all branches"
+   *  and is removed from the URL — same paired-guard discipline as the
+   *  repo fallback: state reset and URL sync must happen together, or the
+   *  binding effect above ping-pongs forever */
+  useEffect(() => {
+    if (branchFilter === 'all') return
+    if (!overviewQuery.isSuccess) return // branch list not loaded yet
+    if (branches.some((b) => b.name === branchFilter)) return
+    const raf = requestAnimationFrame(() => {
+      setBranchFilter('all')
+      setAuthorFilter(null)
+      setSelectedHash(null)
+      try {
+        const url = new URL(window.location.href)
+        url.searchParams.delete('branch')
+        window.history.replaceState(null, '', url)
+      } catch {
+        /* ignore */
+      }
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [branches, branchFilter, overviewQuery.isSuccess])
 
   /** toggle the timeline's commit-type filter from the Conventions card;
    *  scrolls the timeline into view so the loop closes visually */
@@ -651,11 +745,7 @@ export default function Home() {
                     <div className="flex min-w-0 items-center gap-2">
                       <Select
                         value={branchFilter}
-                        onValueChange={(v) => {
-                          setBranchFilter(v)
-                          setAuthorFilter(null)
-                          setSelectedHash(null)
-                        }}
+                        onValueChange={switchingBranch}
                       >
                         <SelectTrigger
                           className="h-8 w-[150px] shrink-0 text-[13px]"
