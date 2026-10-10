@@ -1460,3 +1460,48 @@ Stage Summary:
 3. 【下一步建议】README badge 可加 topics 之外的 CI/languages 徽章；
    截图可补一张横版布局（Switch to horizontal）展示 W-H 双形态
 4. self 仓库叙事：本次为第 19 个 Task commit
+
+---
+Task ID: 20
+Agent: main (Z.ai Code, user-requested round)
+Task: Task 19 遗留事项落地 —— ①补 LICENSE（MIT）②修复 ?repo=<id> URL 参数不生效（README 承诺了但前端从未实现）③补横版布局截图 ④README 双语徽章/截图/文档同步
+
+Work Log:
+- 20-a 根因定位：src/app/page.tsx 的 repoId useState('demo') 硬编码，
+  全 src 目录 grep URLSearchParams/location.search/pushState 零命中 ——
+  URL 参数纯属文档先行、代码未实现
+- 20-b 修复设计（双向绑定，三处协同）：
+  · 新增 URL 绑定 effect：mount + popstate 读 ?repo= 驱动仓库切换
+    （rAF 包装沿用项目既有 lint 规避模式）；无参数时 replaceState
+    规范化 ?repo=<current>，保证每个 history entry 都可恢复
+  · switchingRepo()：UI 切换时 pushState 同步 URL（带 != 守卫，
+    popstate 重入不重复压栈），链接可分享、后退可用
+  · clean-first-run 守卫：回退时 replaceState 同步 URL —— 关键防环，
+    否则 URL effect 会把不可用仓库反复压回造成 ping-pong 死循环
+- 20-c QA 六项全过（agent-browser 实测）：
+  ① 直接访问 ?repo=self → 正确显示 git-activity 39 commits ✓
+  ② reload → 仍锁定 self ✓
+  ③ UI 切 demo → URL 同步 ?repo=demo ✓
+  ④ 浏览器后退 → 回到 self（popstate 生效）✓
+  ⑤ ?repo=nonexistent → 回退 demo + URL 清洗为 ?repo=demo，无死循环 ✓
+  ⑥ 无参数访问 → URL 规范化 ?repo=demo ✓
+  lint 零错误；tsc 仅 examples/websocket 原有缺失依赖报错（未实现
+  示例，非本次改动）
+- 20-d LICENSE：MIT，Copyright (c) 2026 ChenChen913
+- 20-e 截图：06-horizontal-layout.png（demo 横版轨道图 + 底部 commit
+  信息栏，VLM 三问验证：轨道可见/信息栏在/画面完整）
+- 20-f README 双语：加 MIT 徽章；截图章节补横版第 6 张；注册表
+  Tip 补充 ?repo= URL 同步行为说明
+
+Stage Summary:
+- ?repo= URL 双向绑定闭环：文档承诺 → 代码实现 → 六项实测验证
+- 对外整备齐套：MIT LICENSE + 6 张截图 + 徽章 + 双语 README
+- 防环设计沉淀：URL 绑定 effect 与回退守卫必须成对改，单改任一方
+  会引入无限循环（守卫回退 → URL 压回 → 守卫再回退）
+
+未解决问题或风险，建议下一阶段优先事项:
+1. 【下一步建议】分支/作者/类型过滤也可考虑进 URL（?branch=&type=），
+  复用本任务的双向绑定模式，分享链接即可还原完整视图状态
+2. 【下一步建议】GitHub About 栏可补 homepage（若部署线上 demo）；
+  topics 已齐 20 个，star 数上来后可申请 GitHub topics 精选
+3. self 仓库叙事：本次为第 20 个 Task commit

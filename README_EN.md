@@ -4,7 +4,7 @@
 >
 > **Git is the single source of truth: no fabricated data, no hidden / truncated / sampled commits — every commit is reachable.**
 
-[![Made with](https://img.shields.io/badge/built%20by-Claude%20Code-f59e0b)](https://claude.com/claude-code) [![Stack](https://img.shields.io/badge/stack-Next.js%2016%20%2B%20React%2019-0d9488)](https://nextjs.org)
+[![Made with](https://img.shields.io/badge/built%20by-Claude%20Code-f59e0b)](https://claude.com/claude-code) [![Stack](https://img.shields.io/badge/stack-Next.js%2016%20%2B%20React%2019-0d9488)](https://nextjs.org) [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 **[简体中文](README.md) | English**
 
@@ -58,6 +58,10 @@ The tool watching itself — this project's own history, where 24 of 38 commits 
 
 ![Self repo, AI commits](screenshots/05-self-repo-ai-commits.png)
 
+Horizontal layout — time flows left to right with a commit-info rail at the bottom (one toolbar click toggles between orientations):
+
+![Horizontal layout](screenshots/06-horizontal-layout.png)
+
 ## Quick start
 
 ```bash
@@ -110,7 +114,7 @@ Every data source is registered here. Two are built in:
 
 Save and refresh the page — your repository appears in the switcher at the top. **No server restart needed** (APIs re-read the registry on every request).
 
-> Tip: you can also `git clone` remote repositories you want to monitor into the `repos/` directory (`repos/` is gitignored and never committed).
+> Tip: you can also `git clone` remote repositories you want to monitor into the `repos/` directory (`repos/` is gitignored and never committed). The repository switcher mirrors the active repository into the URL (`?repo=<id>`) — refreshing, sharing the link, and browser back/forward all point at the same repository.
 
 ### How data is fetched
 

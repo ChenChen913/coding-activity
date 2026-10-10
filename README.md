@@ -4,7 +4,7 @@
 >
 > **Git 是唯一真实数据源：不伪造数据、不隐藏/截断/抽样 commit，所有 commit 都可访问。**
 
-[![Made with](https://img.shields.io/badge/built%20by-Claude%20Code-f59e0b)](https://claude.com/claude-code) [![Stack](https://img.shields.io/badge/stack-Next.js%2016%20%2B%20React%2019-0d9488)](https://nextjs.org)
+[![Made with](https://img.shields.io/badge/built%20by-Claude%20Code-f59e0b)](https://claude.com/claude-code) [![Stack](https://img.shields.io/badge/stack-Next.js%2016%20%2B%20React%2019-0d9488)](https://nextjs.org) [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 **[简体中文](README.md) | [English](README_EN.md)**
 
@@ -58,6 +58,10 @@ Commit 详情面板——文件变更统计 + 按需展开的 unified diff（语
 
 ![Self 仓库 AI 视图](screenshots/05-self-repo-ai-commits.png)
 
+横版布局——时间从左向右流动，底部是 commit 信息栏（工具栏一键切换横竖双形态）：
+
+![横版布局](screenshots/06-horizontal-layout.png)
+
 ## 快速开始
 
 ```bash
@@ -110,7 +114,7 @@ bash scripts/demo.sh remove    # 删除演示数据，回到干净空间
 
 保存后刷新页面，顶部的仓库切换栏里就会出现你的仓库。**不需要重启服务**（API 每次请求都读注册表）。
 
-> 提示：也可以用 `git clone` 把要监控的远程仓库放进 `repos/` 目录（`repos/` 已被 gitignore，不会被提交）。
+> 提示：也可以用 `git clone` 把要监控的远程仓库放进 `repos/` 目录（`repos/` 已被 gitignore，不会被提交）。顶部仓库切换器会把当前仓库同步到 URL（`?repo=<id>`），刷新、分享链接、浏览器后退都指向同一个仓库。
 
 ### 数据获取方式
 

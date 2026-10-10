@@ -235,6 +235,15 @@ export default function Home() {
       setAuthorFilter(null)
       setSelectedHash(null)
       setTypeFilter(null)
+      // keep ?repo= in sync when falling back — otherwise the URL-binding
+      // effect below would re-apply the unavailable repo and ping-pong forever
+      try {
+        const url = new URL(window.location.href)
+        url.searchParams.set('repo', first.id)
+        window.history.replaceState(null, '', url)
+      } catch {
+        /* ignore */
+      }
     })
     return () => cancelAnimationFrame(raf)
   }, [reposLoaded, allRepos, repos, repoId])
@@ -271,7 +280,59 @@ export default function Home() {
     setAuthorFilter(null)
     setSelectedHash(null)
     setTypeFilter(null)
+    // keep the URL shareable and back-button friendly: ?repo=<id> mirrors
+    // the active repository (pushState only on a real change — popstate
+    // re-entry arrives with the URL already set and must not push again)
+    try {
+      const url = new URL(window.location.href)
+      if (url.searchParams.get('repo') !== id) {
+        url.searchParams.set('repo', id)
+        window.history.pushState(null, '', url)
+      }
+    } catch {
+      /* ignore */
+    }
   }
+
+  /** ?repo= ↔ active repository, two-way binding:
+   *  · mount + browser back/forward apply the URL param to the repo
+   *  · a param-less URL is normalized to ?repo=<current> so every
+   *    history entry (and therefore back/forward) stays recoverable */
+  useEffect(() => {
+    const applyFromUrl = () => {
+      let fromUrl: string | null = null
+      try {
+        fromUrl = new URLSearchParams(window.location.search).get('repo')
+      } catch {
+        /* ignore */
+      }
+      if (!fromUrl) {
+        try {
+          const url = new URL(window.location.href)
+          url.searchParams.set('repo', repoId)
+          window.history.replaceState(null, '', url)
+        } catch {
+          /* ignore */
+        }
+        return
+      }
+      if (fromUrl === repoId) return
+      setRepoId(fromUrl)
+      setBranchFilter('all')
+      setAuthorFilter(null)
+      setSelectedHash(null)
+      setTypeFilter(null)
+    }
+    // rAF-wrapped on mount: async so the lint set-state-in-effect rule
+    // stays satisfied (same pattern as the orientation restore effect);
+    // re-runs caused by repoId changes short-circuit at the equality check
+    const raf = requestAnimationFrame(applyFromUrl)
+    window.addEventListener('popstate', applyFromUrl)
+    return () => {
+      cancelAnimationFrame(raf)
+      window.removeEventListener('popstate', applyFromUrl)
+    }
+  }, [repoId])
 
   /** toggle the timeline's commit-type filter from the Conventions card;
    *  scrolls the timeline into view so the loop closes visually */
